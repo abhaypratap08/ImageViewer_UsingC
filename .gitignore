@@ -1,0 +1,52 @@
+# Compiled binaries
+photon
+photon.exe
+*.exe
+
+# Object files
+*.o
+*.obj
+
+# Build artifacts
+*.out
+*.a
+*.lib
+
+# Debug files
+*.dSYM/
+*.su
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+
+# Log files
+*.log
+
+# Test images (optional)
+test_images/
+*.jpg
+*.png
+*.bmp
+*.gif
+*.jpeg
+
+# Backup files
+*.bak
+*.backup
