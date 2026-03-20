@@ -1,120 +1,144 @@
 # Photon - Image Viewer (V1.0)
+A lightweight image viewer built with C and SDL2.
 
-A image viewer built with C and SDL2.
+## Controls
+| Key / Input     | Action           |
+|-----------------|------------------|
+| `ESC`           | Exit application |
+| `+` / `-`       | Zoom in / out    |
+| `F`             | Fit to window    |
+| `1`             | Actual size      |
+| `I`             | Toggle info overlay |
+| `Mouse wheel`   | Zoom             |
 
-## Windows Setup Guide
+---
 
-### 1. Install MSYS2
+## Installation
 
-1. Download MSYS2 from https://www.msys2.org/
-2. Run installer and follow setup
-3. Open MSYS2 MINGW64 terminal
+### Windows (MSYS2 / MinGW64)
 
-### 2. Install Development Tools
+#### 1. Install MSYS2
+Download and install MSYS2 from https://www.msys2.org/, then open the **MSYS2 MINGW64** terminal.
 
+#### 2. Install Dependencies
 ```bash
-# Update package database
 pacman -Syu
-
-# Install GCC compiler
-pacman -S mingw-w64-x86_64-gcc
-
-# Install SDL2 libraries
-pacman -S mingw-w64-x86_64-SDL2
-pacman -S mingw-w64-x86_64-SDL2_image
-
-# Install build tools
-pacman -S make
+pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-SDL2 mingw-w64-x86_64-SDL2_image make
 ```
 
-### 3. Clone Repository
-
+#### 3. Build & Run
 ```bash
-cd /c/Users/prata/OneDrive/Documents/
-git clone https://github.com/yourusername/photon.git
-cd photon
-```
-
-### 4. Build Application
-
-```bash
-# Compile the application
+git clone https://github.com/yourusername/photon.git && cd photon
 make
-
-# Check if executable was created
-ls -la photon.exe
-```
-
-### 5. Run Application
-
-```bash
-# View an image
 ./photon.exe image.jpg
-
-# Run without image
-./photon.exe
 ```
 
-## Windows Controls
+---
 
-- `ESC` - Exit application
-- `+/-` - Zoom in/out
-- `F` - Fit to window
-- `1` - Actual size
-- `I` - Toggle info overlay
-- `Mouse wheel` - Zoom
+### Linux
 
-## Windows Troubleshooting
-
-### Common Issues
-
-**"gcc not found"**
+#### Arch Linux / Manjaro
 ```bash
-# Check GCC installation
-gcc --version
-
-# Reinstall GCC if needed
-pacman -S mingw-w64-x86_64-gcc
+sudo pacman -Syu
+sudo pacman -S gcc sdl2 sdl2_image make
 ```
 
-**"SDL2 not found"**
+#### Ubuntu / Debian / Linux Mint
 ```bash
-# Check SDL2 installation
-pacman -Qs mingw-w64-x86_64-SDL2
-
-# Reinstall SDL2 if needed
-pacman -S mingw-w64-x86_64-SDL2 mingw-w64-x86_64-SDL2_image
+sudo apt update && sudo apt upgrade
+sudo apt install build-essential libsdl2-dev libsdl2-image-dev make
 ```
+
+#### Fedora / RHEL / CentOS
+```bash
+sudo dnf update
+sudo dnf install gcc SDL2-devel SDL2_image-devel make
+```
+
+#### openSUSE
+```bash
+sudo zypper update
+sudo zypper install gcc libSDL2-devel libSDL2_image-devel make
+```
+
+#### Build & Run (all Linux distros)
+```bash
+git clone https://github.com/yourusername/photon.git && cd photon
+make
+./photon image.jpg
+```
+
+---
+
+### macOS (Homebrew)
+
+#### 1. Install Homebrew (if not already installed)
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+#### 2. Install Dependencies
+```bash
+brew update
+brew install sdl2 sdl2_image
+```
+
+#### 3. Build & Run
+```bash
+git clone https://github.com/yourusername/photon.git && cd photon
+make
+./photon image.jpg
+```
+
+---
+
+## Usage
+```bash
+# Open an image
+./photon image.jpg        # Linux / macOS
+./photon.exe image.jpg    # Windows
+
+# Launch without an image
+./photon
+```
+
+---
+
+## Troubleshooting
+
+**`gcc` not found**
+Install GCC via your package manager (see Installation section for your distro).
+
+**`SDL2` not found**
+Install SDL2 and SDL2_image via your package manager (see Installation section for your distro).
 
 **Build fails**
 ```bash
-# Clean and rebuild
 make clean
 make
-
-# Build with debug info
+# Or build with debug info
 make debug
 ```
 
-**"photon.exe not found"**
+**Executable not found after build**
 ```bash
-# Check current directory
-ls -la
-
-# Rebuild if missing
-make
+ls -la          # Linux / macOS
+ls -la *.exe    # Windows
+make            # Rebuild if missing
 ```
 
-## Windows Project Structure
+---
 
+## Project Structure
 ```
 photon/
 ├── src/main.c    # Source code
-├── Makefile       # Build configuration
-├── LICENSE        # MIT License
-└── README.md      # This file
+├── Makefile      # Build configuration
+├── LICENSE       # MIT License
+└── README.md     # This file
 ```
 
-## License
+---
 
+## License
 MIT License
