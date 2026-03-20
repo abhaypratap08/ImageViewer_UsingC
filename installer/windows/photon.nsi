@@ -16,9 +16,9 @@ RequestExecutionLevel admin
 
 Section "Install"
     SetOutPath "$INSTDIR"
-    File "photon.exe"
-    File "SDL2.dll"
-    File "SDL2_image.dll"
+    File "${WORKDIR}\photon.exe"
+    File "${WORKDIR}\SDL2.dll"
+    File "${WORKDIR}\SDL2_image.dll"
 
     ; Start Menu
     CreateDirectory "$SMPROGRAMS\Photon"
