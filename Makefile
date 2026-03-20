@@ -1,13 +1,18 @@
 CC = gcc
 CFLAGS = -std=c99 -Wall -Wextra -Werror -O2 -D_FORTIFY_SOURCE=2
 LIBS = -lSDL2 -lSDL2_image
-TARGET = photon
 SRCDIR = src
 SOURCES = $(SRCDIR)/main.c
 OBJECTS = $(SOURCES:.c=.o)
 
-# Security hardening flags
-SECURITY_FLAGS = -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE -pie -Wl,-z,relro,-z,now
+# OS detection
+ifeq ($(OS),Windows_NT)
+    TARGET = photon.exe
+    SECURITY_FLAGS = -fstack-protector-strong -D_FORTIFY_SOURCE=2
+else
+    TARGET = photon
+    SECURITY_FLAGS = -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE -pie -Wl,-z,relro,-z,now
+endif
 
 # Default target
 all: $(TARGET)
