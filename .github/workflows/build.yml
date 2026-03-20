@@ -15,15 +15,16 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libsdl2-image-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev libsdl2-image-dev imagemagick fuse libfuse2
 
       - name: Build
         run: make
 
       - name: Build AppImage
         run: |
-          # Set up AppDir structure
-          mkdir -p AppDir/usr/bin AppDir/usr/lib AppDir/usr/share/icons
+          mkdir -p AppDir/usr/bin AppDir/usr/lib AppDir/usr/share/icons/hicolor/256x256/apps
 
           cp photon AppDir/usr/bin/photon
           cp installer/linux/photon.desktop AppDir/
@@ -34,21 +35,18 @@ jobs:
           cp /usr/lib/x86_64-linux-gnu/libSDL2-2.0.so.0 AppDir/usr/lib/
           cp /usr/lib/x86_64-linux-gnu/libSDL2_image-2.0.so.0 AppDir/usr/lib/
 
-          # Placeholder icon (replace with real icon later)
-          convert -size 256x256 xc:#1a1a2e -fill white \
-            -font DejaVu-Sans-Bold -pointsize 80 \
-            -gravity center -annotate 0 "P" AppDir/photon.png || \
-            cp /usr/share/pixmaps/gnome-panel.png AppDir/photon.png 2>/dev/null || \
-            touch AppDir/photon.png
+          # Generate icon using ImageMagick
+          convert -size 256x256 xc:#1a1a2e \
+            -fill white -font DejaVu-Sans-Bold -pointsize 100 \
+            -gravity center -annotate 0 "P" \
+            AppDir/photon.png
 
-          cp AppDir/photon.png AppDir/usr/share/icons/
+          cp AppDir/photon.png AppDir/usr/share/icons/hicolor/256x256/apps/photon.png
 
-          # Download appimagetool
+          # Download and run appimagetool
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
-
-          # Build AppImage
-          ARCH=x86_64 ./appimagetool-x86_64.AppImage AppDir Photon-x86_64.AppImage
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run AppDir Photon-x86_64.AppImage
 
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
@@ -82,7 +80,6 @@ jobs:
       - name: Build
         run: |
           make
-          # Copy SDL2 DLLs next to exe so NSIS can bundle them
           cp /mingw64/bin/SDL2.dll .
           cp /mingw64/bin/SDL2_image.dll .
 
@@ -90,7 +87,8 @@ jobs:
         shell: pwsh
         run: |
           choco install nsis -y
-          & "C:\Program Files (x86)\NSIS\makensis.exe" installer\windows\photon.nsi
+          Set-Location $env:GITHUB_WORKSPACE
+          & "C:\Program Files (x86)\NSIS\makensis.exe" /DWORKDIR="$env:GITHUB_WORKSPACE" installer\windows\photon.nsi
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
