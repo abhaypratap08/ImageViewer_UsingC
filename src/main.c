@@ -277,10 +277,9 @@ int scan_folder(const char *filepath, FileList *list) {
     do {
         if (!(ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
              is_image_file(ffd.cFileName) && list->count < MAX_IMAGES) {
-            /* FIX: use MAX_PATH_LENGTH/2 for dir so dir+sep+name fits in MAX_PATH_LENGTH */
             char full[MAX_PATH_LENGTH];
-            snprintf(full, sizeof(full) - 1, "%s\\%s", dir, ffd.cFileName);
-            full[sizeof(full) - 1] = '\0';
+            int full_len = snprintf(full, sizeof(full), "%s\\%s", dir, ffd.cFileName);
+            if (full_len < 0 || full_len >= (int)sizeof(full)) continue;
             list->paths[list->count] = strdup(full);
             if (list->paths[list->count]) list->count++;
         }
@@ -292,10 +291,9 @@ int scan_folder(const char *filepath, FileList *list) {
     struct dirent *e;
     while ((e = readdir(d)) != NULL && list->count < MAX_IMAGES) {
         if (is_image_file(e->d_name)) {
-            /* FIX: explicit null-terminate to avoid format-truncation warning */
             char full[MAX_PATH_LENGTH];
-            snprintf(full, sizeof(full) - 1, "%s/%s", dir, e->d_name);
-            full[sizeof(full) - 1] = '\0';
+            int full_len = snprintf(full, sizeof(full), "%s/%s", dir, e->d_name);
+            if (full_len < 0 || full_len >= (int)sizeof(full)) continue;
             list->paths[list->count] = strdup(full);
             if (list->paths[list->count]) list->count++;
         }
@@ -358,7 +356,6 @@ SDL_Texture* get_thumb(App *app, int index) {
     float ar = (float)full->w / full->h;
     int tw = (ar >= 1.f) ? THUMB_SCALE_MAX : (int)(THUMB_SCALE_MAX * ar);
     int th = (ar <  1.f) ? THUMB_SCALE_MAX : (int)(THUMB_SCALE_MAX / ar);
-    /* FIX: separate lines to avoid misleading-indentation warning */
     if (tw < 1) tw = 1;
     if (th < 1) th = 1;
 
@@ -906,7 +903,6 @@ void handle_events(App *app) {
                     app->rotation = (app->rotation + (shift ? 270 : 90)) % 360;
                     break;
                 case SDLK_c:
-                    /* FIX: braces around if body to avoid misleading-indentation */
                     if (ctrl) { copy_to_clipboard(app); }
                     break;
                 case SDLK_DELETE:
