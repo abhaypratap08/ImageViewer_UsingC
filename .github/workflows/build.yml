@@ -114,7 +114,10 @@ jobs:
             libgcc_s_seh-1.dll libwinpthread-1.dll \
             libstdc++-6.dll libjpeg-62.dll \
             libpng16-16.dll libwebp-7.dll \
-            libfreetype-6.dll zlib1.dll; do
+            libfreetype-6.dll zlib1.dll \
+            libjxl.dll libjxl_threads.dll \
+            libbrotlicommon.dll libbrotlidec.dll \
+            libhwy.dll; do
             src="/mingw64/bin/$dll"
             [ -f "$src" ] && cp "$src" release/
           done
