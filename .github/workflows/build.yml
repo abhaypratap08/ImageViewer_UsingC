@@ -3,6 +3,7 @@ name: Build
 on:
   push:
     branches: [ "main" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main" ]
 
@@ -26,12 +27,9 @@ jobs:
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
 
           cp photon AppDir/usr/bin/photon
-
-          # Bundle SDL2 libs
           cp /usr/lib/x86_64-linux-gnu/libSDL2-2.0.so.0 AppDir/usr/lib/
           cp /usr/lib/x86_64-linux-gnu/libSDL2_image-2.0.so.0 AppDir/usr/lib/
 
-          # Desktop entry
           cat > AppDir/usr/share/applications/photon.desktop << EOF
           [Desktop Entry]
           Name=Photon
@@ -41,15 +39,10 @@ jobs:
           Categories=Graphics;Viewer;
           EOF
 
-          # Simple icon (placeholder)
-          wget -q "https://raw.githubusercontent.com/nicuveo/naudit/master/res/icon.png" -O AppDir/usr/share/icons/hicolor/256x256/apps/photon.png || \
-          convert -size 256x256 xc:#1a1a2e -fill white -draw "text 80,140 'P'" AppDir/usr/share/icons/hicolor/256x256/apps/photon.png 2>/dev/null || \
           touch AppDir/usr/share/icons/hicolor/256x256/apps/photon.png
-
           cp AppDir/usr/share/applications/photon.desktop AppDir/photon.desktop
           cp AppDir/usr/share/icons/hicolor/256x256/apps/photon.png AppDir/photon.png
 
-          # AppRun script
           cat > AppDir/AppRun << 'EOF'
           #!/bin/bash
           HERE="$(dirname "$(readlink -f "${0}")")"
@@ -66,7 +59,7 @@ jobs:
       - name: Build AppImage
         run: ARCH=x86_64 ./appimagetool --appimage-extract-and-run AppDir Photon-x86_64.AppImage
 
-      - name: Upload AppImage
+      - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
         with:
           name: Photon-Linux-AppImage
@@ -90,21 +83,52 @@ jobs:
             make
 
       - name: Build
-        run: make
-
-      - name: Bundle DLLs
         run: |
+          make
           mkdir -p release
           cp photon.exe release/
-          # Copy required SDL2 DLLs so the exe runs without MSYS2 installed
           cp /mingw64/bin/SDL2.dll release/
           cp /mingw64/bin/SDL2_image.dll release/
           cp /mingw64/bin/libgcc_s_seh-1.dll release/ 2>/dev/null || true
           cp /mingw64/bin/libwinpthread-1.dll release/ 2>/dev/null || true
           cp /mingw64/bin/libstdc++-6.dll release/ 2>/dev/null || true
 
-      - name: Upload Windows EXE
+      - name: Zip release folder
+        shell: pwsh
+        run: Compress-Archive -Path release/* -DestinationPath Photon-Windows.zip
+
+      - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: Photon-Windows
-          path: release/
+          path: Photon-Windows.zip
+
+  release:
+    name: Create GitHub Release
+    needs: [ build-linux, build-windows ]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Photon ${{ github.ref_name }}
+          body: |
+            ## Photon Image Viewer ${{ github.ref_name }}
+
+            ### Downloads
+            | Platform | File |
+            |----------|------|
+            | Windows  | `Photon-Windows.zip` — extract and run `photon.exe` |
+            | Linux    | `Photon-x86_64.AppImage` — `chmod +x` then run |
+
+            ### What's new
+            See [commits](${{ github.server_url }}/${{ github.repository }}/commits/${{ github.ref_name }}) for changes.
+          files: |
+            Photon-Linux-AppImage/Photon-x86_64.AppImage
+            Photon-Windows/Photon-Windows.zip
