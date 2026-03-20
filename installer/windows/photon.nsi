@@ -33,6 +33,23 @@ Section "Install"
     File "${WORKDIR}\SDL2_image.dll"
     File "${WORKDIR}\SDL2_ttf.dll"
 
+    ; Runtime DLLs
+    File "${WORKDIR}\libgcc_s_seh-1.dll"
+    File "${WORKDIR}\libwinpthread-1.dll"
+    File "${WORKDIR}\libstdc++-6.dll"
+    File "${WORKDIR}\libjpeg-62.dll"
+    File "${WORKDIR}\libpng16-16.dll"
+    File "${WORKDIR}\libwebp-7.dll"
+    File "${WORKDIR}\libfreetype-6.dll"
+    File "${WORKDIR}\zlib1.dll"
+
+    ; JPEG XL and dependencies
+    File /nonfatal "${WORKDIR}\libjxl.dll"
+    File /nonfatal "${WORKDIR}\libjxl_threads.dll"
+    File /nonfatal "${WORKDIR}\libbrotlicommon.dll"
+    File /nonfatal "${WORKDIR}\libbrotlidec.dll"
+    File /nonfatal "${WORKDIR}\libhwy.dll"
+
     ; Start Menu
     CreateDirectory "$SMPROGRAMS\Photon"
     CreateShortcut "$SMPROGRAMS\Photon\Photon.lnk"     "$INSTDIR\photon.exe"
@@ -66,7 +83,7 @@ Section "Install"
     WriteRegStr   HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Photon" \
                        "DisplayName"     "Photon Image Viewer"
     WriteRegStr   HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Photon" \
-                       "DisplayVersion"  "1.0.0"
+                       "DisplayVersion"  "1.0.1"
     WriteRegStr   HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Photon" \
                        "Publisher"       "Photon Project"
     WriteRegStr   HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Photon" \
@@ -84,11 +101,29 @@ SectionEnd
 ; ── Uninstall ─────────────────────────────────────────────────────────────────
 Section "Uninstall"
 
-    ; Files
+    ; Application files
     Delete "$INSTDIR\photon.exe"
     Delete "$INSTDIR\SDL2.dll"
     Delete "$INSTDIR\SDL2_image.dll"
     Delete "$INSTDIR\SDL2_ttf.dll"
+
+    ; Runtime DLLs
+    Delete "$INSTDIR\libgcc_s_seh-1.dll"
+    Delete "$INSTDIR\libwinpthread-1.dll"
+    Delete "$INSTDIR\libstdc++-6.dll"
+    Delete "$INSTDIR\libjpeg-62.dll"
+    Delete "$INSTDIR\libpng16-16.dll"
+    Delete "$INSTDIR\libwebp-7.dll"
+    Delete "$INSTDIR\libfreetype-6.dll"
+    Delete "$INSTDIR\zlib1.dll"
+
+    ; JPEG XL and dependencies
+    Delete "$INSTDIR\libjxl.dll"
+    Delete "$INSTDIR\libjxl_threads.dll"
+    Delete "$INSTDIR\libbrotlicommon.dll"
+    Delete "$INSTDIR\libbrotlidec.dll"
+    Delete "$INSTDIR\libhwy.dll"
+
     Delete "$INSTDIR\uninstall.exe"
     RMDir  "$INSTDIR"
 
