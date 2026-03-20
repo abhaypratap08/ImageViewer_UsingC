@@ -1,6 +1,19 @@
 # Photon - Image Viewer
 A lightweight image viewer built with C and SDL2.
 
+## Downloads
+| Platform | File | Notes |
+|----------|------|-------|
+| Windows  | [`Photon-Setup.exe`](https://github.com/abhaypratap08/ImageViewer_UsingC/releases/latest) | Installer — includes SDL2, shortcuts, file associations |
+| Linux    | [`Photon-x86_64.AppImage`](https://github.com/abhaypratap08/ImageViewer_UsingC/releases/latest) | No install needed — runs on any x86_64 distro |
+
+**Linux quick start:**
+```bash
+chmod +x Photon-x86_64.AppImage && ./Photon-x86_64.AppImage
+```
+
+---
+
 ## Controls
 | Key / Input   | Action              |
 |---------------|---------------------|
@@ -13,7 +26,7 @@ A lightweight image viewer built with C and SDL2.
 
 ---
 
-## Installation
+## Build from Source
 
 ### Clone the Repository
 ```bash
@@ -21,13 +34,11 @@ git clone https://github.com/abhaypratap08/ImageViewer_UsingC.git
 cd ImageViewer_UsingC
 ```
 
----
-
 ### Windows (MSYS2 / MinGW64)
-
 1. Download and install MSYS2 from https://www.msys2.org/, then open the **MSYS2 MINGW64** terminal.
 2. Install dependencies:
 ```bash
+# pacman is MSYS2's package manager — run this inside the MSYS2 MINGW64 terminal
 pacman -Syu
 make install-deps-windows
 ```
@@ -35,8 +46,6 @@ make install-deps-windows
 ```bash
 make
 ```
-
----
 
 ### Linux
 
@@ -67,16 +76,12 @@ Then build:
 make
 ```
 
----
-
 ### macOS (Homebrew)
-
 ```bash
 make install-deps-mac
 # or manually:
 brew install sdl2 sdl2_image
 ```
-
 Then build:
 ```bash
 make
@@ -95,25 +100,24 @@ make
 ---
 
 ## Build Targets
-
-| Target                      | Description                                       |
-|-----------------------------|---------------------------------------------------|
-| `make`                      | Default build (optimized, security-hardened)      |
-| `make debug`                | Debug build with AddressSanitizer + UBSan         |
-| `make release`              | Stripped, maximum-optimization release build      |
-| `make clean`                | Remove build artifacts                            |
-| `make run`                  | Build and run with `test_image.png`               |
-| `make install-deps`         | Install SDL2 dependencies (Ubuntu/Debian)         |
-| `make install-deps-mac`     | Install SDL2 dependencies (macOS/Homebrew)        |
-| `make install-deps-windows` | Install SDL2 dependencies (MSYS2/Windows)         |
-| `make format`               | Format source code (requires `clang-format`)      |
-| `make security-scan`        | Static analysis (requires `clang-static-analyzer`)|
+| Target                      | Description                                        |
+|-----------------------------|----------------------------------------------------|
+| `make`                      | Default build (optimized, security-hardened)       |
+| `make debug`                | Debug build with AddressSanitizer + UBSan          |
+| `make release`              | Stripped, maximum-optimization release build       |
+| `make clean`                | Remove build artifacts                             |
+| `make run`                  | Build and run with `test_image.png`                |
+| `make install-deps`         | Install SDL2 dependencies (Ubuntu/Debian)          |
+| `make install-deps-mac`     | Install SDL2 dependencies (macOS/Homebrew)         |
+| `make install-deps-windows` | Install SDL2 dependencies (MSYS2/Windows)          |
+| `make format`               | Format source code (requires `clang-format`)       |
+| `make security-scan`        | Static analysis (requires `clang-static-analyzer`) |
 
 ---
 
 ## Troubleshooting
 
-**`gcc` not found** — Install GCC via your package manager (see Installation above).
+**`gcc` not found** — Install GCC via your package manager (see Build from Source above).
 
 **`SDL2` not found** — Run the appropriate `make install-deps*` target for your platform.
 
@@ -135,11 +139,16 @@ make               # rebuild if missing
 ## Project Structure
 ```
 ImageViewer_UsingC/
-├── src/main.c           # Source code
-├── Makefile             # Build configuration
-├── .github/workflows/   # CI workflows
-├── LICENSE              # MIT License
-└── README.md            # This file
+├── src/main.c                    # Source code
+├── Makefile                      # Build configuration
+├── installer/
+│   ├── windows/photon.nsi        # NSIS Windows installer script
+│   └── linux/
+│       ├── AppRun                # AppImage entry point
+│       └── photon.desktop        # Linux desktop entry
+├── .github/workflows/build.yml   # CI — builds installer on every push & release
+├── LICENSE                       # MIT License
+└── README.md                     # This file
 ```
 
 ---
