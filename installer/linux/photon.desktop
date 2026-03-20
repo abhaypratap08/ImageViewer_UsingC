@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Photon Image Viewer
+Comment=A lightweight image viewer built with C and SDL2
+Exec=photon %f
+Icon=photon
+Terminal=false
+Type=Application
+Categories=Graphics;Viewer;
+MimeType=image/jpeg;image/png;image/bmp;image/gif;image/webp;
+StartupNotify=true
