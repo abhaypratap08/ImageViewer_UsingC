@@ -13,15 +13,54 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libsdl2-image-dev
+
       - name: Build
         run: make
+
+      - name: Build AppImage
+        run: |
+          # Set up AppDir structure
+          mkdir -p AppDir/usr/bin AppDir/usr/lib AppDir/usr/share/icons
+
+          cp photon AppDir/usr/bin/photon
+          cp installer/linux/photon.desktop AppDir/
+          cp installer/linux/AppRun AppDir/
+          chmod +x AppDir/AppRun AppDir/usr/bin/photon
+
+          # Bundle SDL2 libs
+          cp /usr/lib/x86_64-linux-gnu/libSDL2-2.0.so.0 AppDir/usr/lib/
+          cp /usr/lib/x86_64-linux-gnu/libSDL2_image-2.0.so.0 AppDir/usr/lib/
+
+          # Placeholder icon (replace with real icon later)
+          convert -size 256x256 xc:#1a1a2e -fill white \
+            -font DejaVu-Sans-Bold -pointsize 80 \
+            -gravity center -annotate 0 "P" AppDir/photon.png || \
+            cp /usr/share/pixmaps/gnome-panel.png AppDir/photon.png 2>/dev/null || \
+            touch AppDir/photon.png
+
+          cp AppDir/photon.png AppDir/usr/share/icons/
+
+          # Download appimagetool
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+
+          # Build AppImage
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage AppDir Photon-x86_64.AppImage
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Photon-Linux
+          path: Photon-x86_64.AppImage
+
       - name: Upload to release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: photon
+          files: Photon-x86_64.AppImage
 
   build-windows:
     runs-on: windows-latest
@@ -30,6 +69,7 @@ jobs:
         shell: msys2 {0}
     steps:
       - uses: actions/checkout@v4
+
       - uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -38,10 +78,28 @@ jobs:
             mingw-w64-x86_64-SDL2
             mingw-w64-x86_64-SDL2_image
             make
+
       - name: Build
-        run: make
+        run: |
+          make
+          # Copy SDL2 DLLs next to exe so NSIS can bundle them
+          cp /mingw64/bin/SDL2.dll .
+          cp /mingw64/bin/SDL2_image.dll .
+
+      - name: Build NSIS installer
+        shell: pwsh
+        run: |
+          choco install nsis -y
+          & "C:\Program Files (x86)\NSIS\makensis.exe" installer\windows\photon.nsi
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Photon-Windows
+          path: Photon-Setup.exe
+
       - name: Upload to release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: photon.exe
+          files: Photon-Setup.exe
