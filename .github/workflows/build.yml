@@ -51,7 +51,6 @@ jobs:
           MimeType=image/png;image/jpeg;image/bmp;image/gif;image/x-tga;image/webp;
           EOF
 
-          # Placeholder icon
           touch AppDir/usr/share/icons/hicolor/256x256/apps/photon.png
           cp AppDir/usr/share/applications/photon.desktop AppDir/photon.desktop
           cp AppDir/usr/share/icons/hicolor/256x256/apps/photon.png AppDir/photon.png
@@ -88,6 +87,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # FIX: nsis is NOT a MINGW64 package — removed from here
       - uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -97,7 +97,11 @@ jobs:
             mingw-w64-x86_64-SDL2_image
             mingw-w64-x86_64-SDL2_ttf
             make
-            nsis
+
+      # FIX: install NSIS via Chocolatey (the correct way on windows-latest)
+      - name: Install NSIS
+        shell: pwsh
+        run: choco install nsis -y --no-progress
 
       - name: Build
         run: make
@@ -117,27 +121,28 @@ jobs:
             [ -f "$src" ] && cp "$src" release/
           done
 
-      - name: Create placeholder icon (if none exists)
+      - name: Create placeholder icon
         shell: pwsh
         run: |
           if (-Not (Test-Path "assets\icon.ico")) {
             New-Item -ItemType Directory -Force -Path "assets" | Out-Null
-            # Copy a minimal valid .ico (1x1 white pixel) as placeholder
             [System.IO.File]::WriteAllBytes("assets\icon.ico",
               [Convert]::FromBase64String(
                 "AAABAAEAAQEAAAEAGAAsAAAAFgAAACgAAAABAAAAAgAAAAEAGAAAAAAA" +
                 "AAAAAAAAAAAAAAAAAAAA////AAAAAAAA"))
           }
 
+      # FIX: run makensis via PowerShell so it uses the system PATH (Chocolatey install)
       - name: Build installer
-        shell: msys2 {0}
+        shell: pwsh
         run: |
-          cp -r release .
-          makensis installer.nsi
+          $env:PATH = "C:\Program Files (x86)\NSIS;$env:PATH"
+          $workdir = (Get-Location).Path -replace '\\','/'
+          & "makensis.exe" /DWORKDIR="$workdir\release" photon.nsi
 
       - name: Zip portable release
         shell: pwsh
-        run: Compress-Archive -Path release/* -DestinationPath Photon-Windows.zip
+        run: Compress-Archive -Path release\* -DestinationPath Photon-Windows.zip
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
