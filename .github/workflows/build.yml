@@ -5,8 +5,6 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
-  release:
-    types: [ created ]
 
 jobs:
   build-linux:
@@ -15,50 +13,64 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libsdl2-dev libsdl2-image-dev imagemagick fuse libfuse2
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libsdl2-image-dev wget
 
       - name: Build
         run: make
 
-      - name: Build AppImage
+      - name: Create AppDir
         run: |
-          mkdir -p AppDir/usr/bin AppDir/usr/lib AppDir/usr/share/icons/hicolor/256x256/apps
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/lib
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
 
           cp photon AppDir/usr/bin/photon
-          cp installer/linux/photon.desktop AppDir/
-          cp installer/linux/AppRun AppDir/
-          chmod +x AppDir/AppRun AppDir/usr/bin/photon
 
           # Bundle SDL2 libs
           cp /usr/lib/x86_64-linux-gnu/libSDL2-2.0.so.0 AppDir/usr/lib/
           cp /usr/lib/x86_64-linux-gnu/libSDL2_image-2.0.so.0 AppDir/usr/lib/
 
-          # Generate icon using ImageMagick
-          convert -size 256x256 xc:#1a1a2e \
-            -fill white -font DejaVu-Sans-Bold -pointsize 100 \
-            -gravity center -annotate 0 "P" \
-            AppDir/photon.png
+          # Desktop entry
+          cat > AppDir/usr/share/applications/photon.desktop << EOF
+          [Desktop Entry]
+          Name=Photon
+          Exec=photon
+          Icon=photon
+          Type=Application
+          Categories=Graphics;Viewer;
+          EOF
 
-          cp AppDir/photon.png AppDir/usr/share/icons/hicolor/256x256/apps/photon.png
+          # Simple icon (placeholder)
+          wget -q "https://raw.githubusercontent.com/nicuveo/naudit/master/res/icon.png" -O AppDir/usr/share/icons/hicolor/256x256/apps/photon.png || \
+          convert -size 256x256 xc:#1a1a2e -fill white -draw "text 80,140 'P'" AppDir/usr/share/icons/hicolor/256x256/apps/photon.png 2>/dev/null || \
+          touch AppDir/usr/share/icons/hicolor/256x256/apps/photon.png
 
-          # Download and run appimagetool
-          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x appimagetool-x86_64.AppImage
-          ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run AppDir Photon-x86_64.AppImage
+          cp AppDir/usr/share/applications/photon.desktop AppDir/photon.desktop
+          cp AppDir/usr/share/icons/hicolor/256x256/apps/photon.png AppDir/photon.png
 
-      - name: Upload AppImage artifact
+          # AppRun script
+          cat > AppDir/AppRun << 'EOF'
+          #!/bin/bash
+          HERE="$(dirname "$(readlink -f "${0}")")"
+          export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+          exec "${HERE}/usr/bin/photon" "$@"
+          EOF
+          chmod +x AppDir/AppRun
+
+      - name: Download appimagetool
+        run: |
+          wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" -O appimagetool
+          chmod +x appimagetool
+
+      - name: Build AppImage
+        run: ARCH=x86_64 ./appimagetool --appimage-extract-and-run AppDir Photon-x86_64.AppImage
+
+      - name: Upload AppImage
         uses: actions/upload-artifact@v4
         with:
-          name: Photon-Linux
+          name: Photon-Linux-AppImage
           path: Photon-x86_64.AppImage
-
-      - name: Upload to release
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: Photon-x86_64.AppImage
 
   build-windows:
     runs-on: windows-latest
@@ -78,26 +90,21 @@ jobs:
             make
 
       - name: Build
-        run: |
-          make
-          cp /mingw64/bin/SDL2.dll .
-          cp /mingw64/bin/SDL2_image.dll .
+        run: make
 
-      - name: Build NSIS installer
-        shell: pwsh
+      - name: Bundle DLLs
         run: |
-          choco install nsis -y
-          Set-Location $env:GITHUB_WORKSPACE
-          & "C:\Program Files (x86)\NSIS\makensis.exe" /DWORKDIR="$env:GITHUB_WORKSPACE" installer\windows\photon.nsi
+          mkdir -p release
+          cp photon.exe release/
+          # Copy required SDL2 DLLs so the exe runs without MSYS2 installed
+          cp /mingw64/bin/SDL2.dll release/
+          cp /mingw64/bin/SDL2_image.dll release/
+          cp /mingw64/bin/libgcc_s_seh-1.dll release/ 2>/dev/null || true
+          cp /mingw64/bin/libwinpthread-1.dll release/ 2>/dev/null || true
+          cp /mingw64/bin/libstdc++-6.dll release/ 2>/dev/null || true
 
-      - name: Upload installer artifact
+      - name: Upload Windows EXE
         uses: actions/upload-artifact@v4
         with:
           name: Photon-Windows
-          path: Photon-Setup.exe
-
-      - name: Upload to release
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: Photon-Setup.exe
+          path: release/
