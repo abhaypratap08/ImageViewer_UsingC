@@ -3,42 +3,55 @@ name: Build
 on:
   push:
     branches: [ "main" ]
-    tags: [ "v*" ]
+    tags:     [ "v*" ]
   pull_request:
     branches: [ "main" ]
 
 jobs:
+  # ── Linux ────────────────────────────────────────────────────────────────────
   build-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libsdl2-image-dev wget
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libsdl2-dev libsdl2-image-dev libsdl2-ttf-dev wget
 
       - name: Build
         run: make
 
       - name: Create AppDir
         run: |
-          mkdir -p AppDir/usr/bin
-          mkdir -p AppDir/usr/lib
-          mkdir -p AppDir/usr/share/applications
-          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+          mkdir -p AppDir/usr/bin AppDir/usr/lib \
+                   AppDir/usr/share/applications \
+                   AppDir/usr/share/icons/hicolor/256x256/apps
 
           cp photon AppDir/usr/bin/photon
-          cp /usr/lib/x86_64-linux-gnu/libSDL2-2.0.so.0 AppDir/usr/lib/
-          cp /usr/lib/x86_64-linux-gnu/libSDL2_image-2.0.so.0 AppDir/usr/lib/
 
-          cat > AppDir/usr/share/applications/photon.desktop << EOF
+          # Bundle SDL2 libraries
+          for lib in \
+            libSDL2-2.0.so.0 \
+            libSDL2_image-2.0.so.0 \
+            libSDL2_ttf-2.0.so.0; do
+            src=$(find /usr/lib -name "$lib" 2>/dev/null | head -1)
+            [ -n "$src" ] && cp "$src" AppDir/usr/lib/
+          done
+
+          cat > AppDir/usr/share/applications/photon.desktop << 'EOF'
           [Desktop Entry]
           Name=Photon
-          Exec=photon
+          Comment=Lightweight image viewer
+          Exec=photon %f
           Icon=photon
           Type=Application
           Categories=Graphics;Viewer;
+          MimeType=image/png;image/jpeg;image/bmp;image/gif;image/x-tga;image/webp;
           EOF
 
+          # Placeholder icon
           touch AppDir/usr/share/icons/hicolor/256x256/apps/photon.png
           cp AppDir/usr/share/applications/photon.desktop AppDir/photon.desktop
           cp AppDir/usr/share/icons/hicolor/256x256/apps/photon.png AppDir/photon.png
@@ -53,7 +66,8 @@ jobs:
 
       - name: Download appimagetool
         run: |
-          wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" -O appimagetool
+          wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" \
+               -O appimagetool
           chmod +x appimagetool
 
       - name: Build AppImage
@@ -65,6 +79,7 @@ jobs:
           name: Photon-Linux-AppImage
           path: Photon-x86_64.AppImage
 
+  # ── Windows ──────────────────────────────────────────────────────────────────
   build-windows:
     runs-on: windows-latest
     defaults:
@@ -80,29 +95,59 @@ jobs:
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-SDL2
             mingw-w64-x86_64-SDL2_image
+            mingw-w64-x86_64-SDL2_ttf
             make
+            nsis
 
       - name: Build
+        run: make
+
+      - name: Bundle DLLs
         run: |
-          make
           mkdir -p release
           cp photon.exe release/
-          cp /mingw64/bin/SDL2.dll release/
-          cp /mingw64/bin/SDL2_image.dll release/
-          cp /mingw64/bin/libgcc_s_seh-1.dll release/ 2>/dev/null || true
-          cp /mingw64/bin/libwinpthread-1.dll release/ 2>/dev/null || true
-          cp /mingw64/bin/libstdc++-6.dll release/ 2>/dev/null || true
 
-      - name: Zip release folder
+          for dll in \
+            SDL2.dll SDL2_image.dll SDL2_ttf.dll \
+            libgcc_s_seh-1.dll libwinpthread-1.dll \
+            libstdc++-6.dll libjpeg-62.dll \
+            libpng16-16.dll libwebp-7.dll \
+            libfreetype-6.dll zlib1.dll; do
+            src="/mingw64/bin/$dll"
+            [ -f "$src" ] && cp "$src" release/
+          done
+
+      - name: Create placeholder icon (if none exists)
+        shell: pwsh
+        run: |
+          if (-Not (Test-Path "assets\icon.ico")) {
+            New-Item -ItemType Directory -Force -Path "assets" | Out-Null
+            # Copy a minimal valid .ico (1x1 white pixel) as placeholder
+            [System.IO.File]::WriteAllBytes("assets\icon.ico",
+              [Convert]::FromBase64String(
+                "AAABAAEAAQEAAAEAGAAsAAAAFgAAACgAAAABAAAAAgAAAAEAGAAAAAAA" +
+                "AAAAAAAAAAAAAAAAAAAA////AAAAAAAA"))
+          }
+
+      - name: Build installer
+        shell: msys2 {0}
+        run: |
+          cp -r release .
+          makensis installer.nsi
+
+      - name: Zip portable release
         shell: pwsh
         run: Compress-Archive -Path release/* -DestinationPath Photon-Windows.zip
 
-      - name: Upload Windows artifact
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Photon-Windows
-          path: Photon-Windows.zip
+          path: |
+            Photon-Windows.zip
+            Photon-Setup.exe
 
+  # ── GitHub Release ───────────────────────────────────────────────────────────
   release:
     name: Create GitHub Release
     needs: [ build-linux, build-windows ]
@@ -122,13 +167,30 @@ jobs:
             ## Photon Image Viewer ${{ github.ref_name }}
 
             ### Downloads
-            | Platform | File |
-            |----------|------|
-            | Windows  | `Photon-Windows.zip` — extract and run `photon.exe` |
-            | Linux    | `Photon-x86_64.AppImage` — `chmod +x` then run |
 
-            ### What's new
-            See [commits](${{ github.server_url }}/${{ github.repository }}/commits/${{ github.ref_name }}) for changes.
+            | Platform | File | Notes |
+            |----------|------|-------|
+            | Windows (Installer) | `Photon-Setup.exe` | Installs to Program Files, adds file associations |
+            | Windows (Portable)  | `Photon-Windows.zip` | Extract and run `photon.exe` — no install needed |
+            | Linux               | `Photon-x86_64.AppImage` | `chmod +x` then run |
+
+            ### Controls
+            | Key | Action |
+            |-----|--------|
+            | `O` | Open file dialog |
+            | `←` / `→` | Previous / next image |
+            | `R` / `Shift+R` | Rotate clockwise / counter-clockwise |
+            | `I` | Toggle info panel |
+            | `T` | Toggle thumbnail strip |
+            | `Ctrl+C` | Copy image to clipboard |
+            | `Del` | Delete image (with confirmation) |
+            | `F` | Fit to window |
+            | `1` | Actual size |
+            | Mouse drag | Pan image |
+            | Scroll wheel | Zoom |
+            | Drag & drop | Open dropped image file |
+
           files: |
             Photon-Linux-AppImage/Photon-x86_64.AppImage
             Photon-Windows/Photon-Windows.zip
+            Photon-Windows/Photon-Setup.exe
