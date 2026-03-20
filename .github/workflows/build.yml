@@ -87,7 +87,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # FIX: nsis is NOT a MINGW64 package — removed from here
       - uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -98,7 +97,6 @@ jobs:
             mingw-w64-x86_64-SDL2_ttf
             make
 
-      # FIX: install NSIS via Chocolatey (the correct way on windows-latest)
       - name: Install NSIS
         shell: pwsh
         run: choco install nsis -y --no-progress
@@ -132,13 +130,12 @@ jobs:
                 "AAAAAAAAAAAAAAAAAAAA////AAAAAAAA"))
           }
 
-      # FIX: run makensis via PowerShell so it uses the system PATH (Chocolatey install)
       - name: Build installer
         shell: pwsh
         run: |
           $env:PATH = "C:\Program Files (x86)\NSIS;$env:PATH"
           $workdir = (Get-Location).Path -replace '\\','/'
-          & "makensis.exe" /DWORKDIR="$workdir\release" photon.nsi
+          & "makensis.exe" /DWORKDIR="$workdir\release" installer\windows\photon.nsi
 
       - name: Zip portable release
         shell: pwsh
