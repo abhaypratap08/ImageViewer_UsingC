@@ -109,18 +109,11 @@ jobs:
           mkdir -p release
           cp photon.exe release/
 
-          for dll in \
-            SDL2.dll SDL2_image.dll SDL2_ttf.dll \
-            libgcc_s_seh-1.dll libwinpthread-1.dll \
-            libstdc++-6.dll libjpeg-62.dll \
-            libpng16-16.dll libwebp-7.dll \
-            libfreetype-6.dll zlib1.dll \
-            libjxl.dll libjxl_threads.dll \
-            libbrotlicommon.dll libbrotlidec.dll \
-            libhwy.dll; do
-            src="/mingw64/bin/$dll"
-            [ -f "$src" ] && cp "$src" release/
-          done
+          # Auto-detect every DLL photon.exe needs and copy from /mingw64/bin
+          ldd photon.exe \
+            | grep -i '/mingw64/' \
+            | awk '{print $3}' \
+            | xargs -I{} cp {} release/
 
       - name: Create placeholder icon
         shell: pwsh
