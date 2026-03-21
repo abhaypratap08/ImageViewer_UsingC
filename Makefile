@@ -9,23 +9,29 @@ ifeq ($(OS),Windows_NT)
     TARGET         = photon.exe
     LIBS           = -lSDL2 -lSDL2_image -lSDL2_ttf -lcomdlg32 -lgdi32
     SECURITY_FLAGS = -fstack-protector-strong -D_FORTIFY_SOURCE=2
+    RC_OBJ         = src/photon_res.o
 else
     TARGET         = photon
     LIBS           = -lSDL2 -lSDL2_image -lSDL2_ttf
     SECURITY_FLAGS = -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE -pie -Wl,-z,relro,-z,now
+    RC_OBJ         =
 endif
 
 # ── Targets ───────────────────────────────────────────────────────────────────
 all: $(TARGET)
 
-$(TARGET): $(OBJECTS)
-	$(CC) $(OBJECTS) -o $(TARGET) $(LIBS) $(SECURITY_FLAGS)
+$(TARGET): $(OBJECTS) $(RC_OBJ)
+	$(CC) $(OBJECTS) $(RC_OBJ) -o $(TARGET) $(LIBS) $(SECURITY_FLAGS)
 
 %.o: %.c
 	$(CC) $(CFLAGS) $(SECURITY_FLAGS) -c $< -o $@
 
+# Compile Windows resource file (icon)
+src/photon_res.o: src/photon.rc assets/icon.ico
+	windres src/photon.rc -O coff -o src/photon_res.o
+
 clean:
-	rm -f $(OBJECTS) $(TARGET)
+	rm -f $(OBJECTS) $(RC_OBJ) $(TARGET)
 
 # ── Dependency installation ───────────────────────────────────────────────────
 install-deps:
