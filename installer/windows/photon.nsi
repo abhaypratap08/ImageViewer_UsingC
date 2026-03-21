@@ -34,14 +34,14 @@ Section "Install"
     File "${WORKDIR}\SDL2_ttf.dll"
 
     ; Runtime DLLs
-    File "${WORKDIR}\libgcc_s_seh-1.dll"
-    File "${WORKDIR}\libwinpthread-1.dll"
-    File "${WORKDIR}\libstdc++-6.dll"
-    File "${WORKDIR}\libjpeg-62.dll"
-    File "${WORKDIR}\libpng16-16.dll"
-    File "${WORKDIR}\libwebp-7.dll"
-    File "${WORKDIR}\libfreetype-6.dll"
-    File "${WORKDIR}\zlib1.dll"
+    File /nonfatal "${WORKDIR}\libgcc_s_seh-1.dll"
+    File /nonfatal "${WORKDIR}\libwinpthread-1.dll"
+    File /nonfatal "${WORKDIR}\libstdc++-6.dll"
+    File /nonfatal "${WORKDIR}\libjpeg-62.dll"
+    File /nonfatal "${WORKDIR}\libpng16-16.dll"
+    File /nonfatal "${WORKDIR}\libwebp-7.dll"
+    File /nonfatal "${WORKDIR}\libfreetype-6.dll"
+    File /nonfatal "${WORKDIR}\zlib1.dll"
 
     ; JPEG XL and dependencies
     File /nonfatal "${WORKDIR}\libjxl.dll"
