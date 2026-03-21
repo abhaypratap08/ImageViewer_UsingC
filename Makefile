@@ -8,7 +8,7 @@ OBJECTS = $(SOURCES:.c=.o)
 ifeq ($(OS),Windows_NT)
     TARGET         = photon.exe
     LIBS           = -lSDL2 -lSDL2_image -lSDL2_ttf -lcomdlg32 -lgdi32
-    SECURITY_FLAGS = -fstack-protector-strong -D_FORTIFY_SOURCE=2
+    SECURITY_FLAGS = -fstack-protector-strong -D_FORTIFY_SOURCE=2 -mwindows
     RC_OBJ         = src/photon_res.o
 else
     TARGET         = photon
