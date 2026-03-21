@@ -16,8 +16,6 @@
 #include <commdlg.h>
 #define strcasecmp  _stricmp
 #define PATH_SEP    '\\'
-/* Hide the console window — GUI subsystem */
-#pragma comment(linker, "/subsystem:windows")
 #else
 #include <dirent.h>
 #define PATH_SEP    '/'
