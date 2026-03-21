@@ -40,7 +40,7 @@ jobs:
             [ -n "$src" ] && cp "$src" AppDir/usr/lib/
           done
 
-          cat > AppDir/usr/share/applications/photon.desktop << 'EOF'
+          cat > AppDir/usr/share/applications/photon.desktop << 'DESKTOPEOF'
           [Desktop Entry]
           Name=Photon
           Comment=Lightweight image viewer
@@ -49,18 +49,18 @@ jobs:
           Type=Application
           Categories=Graphics;Viewer;
           MimeType=image/png;image/jpeg;image/bmp;image/gif;image/x-tga;image/webp;
-          EOF
+          DESKTOPEOF
 
           touch AppDir/usr/share/icons/hicolor/256x256/apps/photon.png
           cp AppDir/usr/share/applications/photon.desktop AppDir/photon.desktop
           cp AppDir/usr/share/icons/hicolor/256x256/apps/photon.png AppDir/photon.png
 
-          cat > AppDir/AppRun << 'EOF'
+          cat > AppDir/AppRun << 'APPRUNEOF'
           #!/bin/bash
           HERE="$(dirname "$(readlink -f "${0}")")"
           export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
           exec "${HERE}/usr/bin/photon" "$@"
-          EOF
+          APPRUNEOF
           chmod +x AppDir/AppRun
 
       - name: Download appimagetool
@@ -114,17 +114,6 @@ jobs:
             | grep -i '/mingw64/' \
             | awk '{print $3}' \
             | xargs -I{} cp {} release/
-
-      - name: Create placeholder icon
-        shell: pwsh
-        run: |
-          if (-Not (Test-Path "assets\icon.ico")) {
-            New-Item -ItemType Directory -Force -Path "assets" | Out-Null
-            [System.IO.File]::WriteAllBytes("assets\icon.ico",
-              [Convert]::FromBase64String(
-                "AAABAAEAAQEAAAEAGAAsAAAAFgAAACgAAAABAAAAAgAAAAEAGAAAAAAA" +
-                "AAAAAAAAAAAAAAAAAAAA////AAAAAAAA"))
-          }
 
       - name: Build installer
         shell: pwsh
