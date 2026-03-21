@@ -8,14 +8,13 @@ Built on SDL2 with a focus on speed, simplicity, and staying out of your way.
 
 ## Install
 
-| Platform | File | |
-|----------|------|-|
-| Windows (Installer) | [`Photon-Setup.exe`](https://github.com/abhaypratap08/ImageViewer_UsingC/releases/latest) | Registers file associations, adds Start Menu & Desktop shortcuts |
-| Windows (Portable)  | [`Photon-Windows.zip`](https://github.com/abhaypratap08/ImageViewer_UsingC/releases/latest) | Extract anywhere, run `photon.exe` — zero installation |
-| Linux (AppImage)    | [`Photon-x86_64.AppImage`](https://github.com/abhaypratap08/ImageViewer_UsingC/releases/latest) | Single binary, runs on any x86\_64 distro |
+**Windows** — [`Photon-Windows.zip`](https://github.com/abhaypratap08/ImageViewer_UsingC/releases/latest)
+
+Extract anywhere, double-click `photon.exe`. No installation, no registry, no admin rights.
+
+**Linux** — [`Photon-x86_64.AppImage`](https://github.com/abhaypratap08/ImageViewer_UsingC/releases/latest)
 
 ```bash
-# Linux
 chmod +x Photon-x86_64.AppImage && ./Photon-x86_64.AppImage
 ```
 
@@ -163,7 +162,7 @@ make                # rebuild
 ImageViewer_UsingC/
 ├── src/
 │   ├── main.c          # everything
-│   ├── photon.rc       # Windows resource file (icon + version metadata)
+│   └── photon.rc       # Windows resource file (icon + version metadata)
 ├── assets/
 │   └── icon.ico        # application icon
 ├── installer/
@@ -172,7 +171,7 @@ ImageViewer_UsingC/
 ├── Makefile
 ├── .github/
 │   └── workflows/
-│       └── build.yml   # CI: builds Linux AppImage + Windows EXE/installer on every push
+│       └── build.yml   # CI: builds Linux AppImage + Windows EXE on every push
 ├── LICENSE
 └── README.md
 ```
@@ -185,8 +184,7 @@ ImageViewer_UsingC/
 - **Graphics:** SDL2, SDL2\_image, SDL2\_ttf
 - **Build:** GCC + Make
 - **CI:** GitHub Actions — builds and publishes releases automatically
-- **Installer:** NSIS (Windows)
-- **Packaging:** AppImage (Linux)
+- **Packaging:** AppImage (Linux), portable zip (Windows)
 
 ---
 
