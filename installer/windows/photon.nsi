@@ -83,7 +83,7 @@ Section "Install"
     WriteRegStr   HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Photon" \
                        "DisplayName"     "Photon Image Viewer"
     WriteRegStr   HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Photon" \
-                       "DisplayVersion"  "1.0.1"
+                       "DisplayVersion"  "1.0.0"
     WriteRegStr   HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Photon" \
                        "Publisher"       "Photon Project"
     WriteRegStr   HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Photon" \
