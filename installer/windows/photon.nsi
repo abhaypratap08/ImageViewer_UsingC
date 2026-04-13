@@ -3,7 +3,7 @@
 Name "Photon Image Viewer"
 OutFile "Photon-Setup.exe"
 InstallDir "$PROGRAMFILES64\Photon"
-InstallDirRegKey HKCU "Software\Photon" ""
+InstallDirRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Photon" "InstallLocation"
 RequestExecutionLevel admin
 
 !insertmacro MUI_PAGE_WELCOME
@@ -17,9 +17,15 @@ RequestExecutionLevel admin
 !insertmacro MUI_LANGUAGE "English"
 
 ; ── File association macro (must be outside Section) ─────────────────────────
-!macro AssocExt EXT
-    WriteRegStr HKCU "Software\Classes\.${EXT}" "" "PhotonImageFile"
+!macro RegisterOpenWith EXT
     WriteRegStr HKCU "Software\Classes\.${EXT}\OpenWithProgids" "PhotonImageFile" ""
+    WriteRegStr HKCU "Software\Classes\Applications\photon.exe\SupportedTypes" ".${EXT}" ""
+!macroend
+
+!macro UnregisterOpenWith EXT
+    DeleteRegValue HKCU "Software\Classes\.${EXT}\OpenWithProgids" "PhotonImageFile"
+    DeleteRegKey /ifempty HKCU "Software\Classes\.${EXT}\OpenWithProgids"
+    DeleteRegValue HKCU "Software\Classes\Applications\photon.exe\SupportedTypes" ".${EXT}"
 !macroend
 
 ; ── Install ───────────────────────────────────────────────────────────────────
@@ -58,17 +64,23 @@ Section "Install"
     ; Desktop shortcut
     CreateShortcut "$DESKTOP\Photon.lnk" "$INSTDIR\photon.exe"
 
-    ; File associations
-    !insertmacro AssocExt "jpg"
-    !insertmacro AssocExt "jpeg"
-    !insertmacro AssocExt "png"
-    !insertmacro AssocExt "bmp"
-    !insertmacro AssocExt "gif"
-    !insertmacro AssocExt "webp"
+    ; Register Photon as an "Open with" handler without overwriting defaults
+    !insertmacro RegisterOpenWith "jpg"
+    !insertmacro RegisterOpenWith "jpeg"
+    !insertmacro RegisterOpenWith "png"
+    !insertmacro RegisterOpenWith "bmp"
+    !insertmacro RegisterOpenWith "gif"
+    !insertmacro RegisterOpenWith "tga"
+    !insertmacro RegisterOpenWith "webp"
 
     ; Register app handler
-    WriteRegStr HKCU "Software\Classes\PhotonImageFile" "" "Image File"
+    WriteRegStr HKCU "Software\Classes\PhotonImageFile" "" "Photon Image File"
+    WriteRegStr HKCU "Software\Classes\PhotonImageFile\DefaultIcon" "" "$INSTDIR\photon.exe,0"
     WriteRegStr HKCU "Software\Classes\PhotonImageFile\shell\open\command" "" \
+                '"$INSTDIR\photon.exe" "%1"'
+    WriteRegStr HKCU "Software\Classes\Applications\photon.exe" \
+                "FriendlyAppName" "Photon Image Viewer"
+    WriteRegStr HKCU "Software\Classes\Applications\photon.exe\shell\open\command" "" \
                 '"$INSTDIR\photon.exe" "%1"'
 
     ; Right-click "Open with Photon" on any file
@@ -86,6 +98,8 @@ Section "Install"
                        "DisplayVersion"  "1.0.0"
     WriteRegStr   HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Photon" \
                        "Publisher"       "Photon Project"
+    WriteRegStr   HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Photon" \
+                       "InstallLocation" "$INSTDIR"
     WriteRegStr   HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Photon" \
                        "UninstallString" "$INSTDIR\uninstall.exe"
     WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Photon" \
@@ -135,14 +149,16 @@ Section "Uninstall"
 
     ; Registry
     DeleteRegKey HKCU "Software\Classes\PhotonImageFile"
+    DeleteRegKey HKCU "Software\Classes\Applications\photon.exe"
     DeleteRegKey HKCU "Software\Classes\*\shell\Open with Photon"
     DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Photon"
-    DeleteRegKey HKCU "Software\Classes\.jpg"
-    DeleteRegKey HKCU "Software\Classes\.jpeg"
-    DeleteRegKey HKCU "Software\Classes\.png"
-    DeleteRegKey HKCU "Software\Classes\.bmp"
-    DeleteRegKey HKCU "Software\Classes\.gif"
-    DeleteRegKey HKCU "Software\Classes\.webp"
+    !insertmacro UnregisterOpenWith "jpg"
+    !insertmacro UnregisterOpenWith "jpeg"
+    !insertmacro UnregisterOpenWith "png"
+    !insertmacro UnregisterOpenWith "bmp"
+    !insertmacro UnregisterOpenWith "gif"
+    !insertmacro UnregisterOpenWith "tga"
+    !insertmacro UnregisterOpenWith "webp"
 
     ; Notify Windows
     System::Call 'shell32.dll::SHChangeNotify(i, i, i, i) v (0x08000000, 0, 0, 0)'

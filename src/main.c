@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <time.h>
 #include <sys/stat.h>
 #include <ctype.h>
@@ -36,10 +37,17 @@
 #define THUMB_CACHE_MAX 32
 #define THUMB_SCALE_MAX 128
 
-#define INFO_W          300
-#define INFO_LINE_H     22
-#define INFO_PAD        12
-#define INFO_LINES      9
+#define UI_MARGIN       16
+#define UI_GAP          14
+#define TOOLBAR_H       54
+#define TOOLBAR_BTN_H   30
+#define TOOLBAR_BTN_PAD 14
+#define STATUS_BAR_H    34
+#define PANEL_MIN_W     280
+#define PANEL_MAX_W     380
+#define PANEL_MIN_CANVAS_W 360
+#define INFO_PAD        14
+#define INFO_ROW_H      48
 
 #ifdef _WIN32
 #undef main
@@ -90,6 +98,11 @@ typedef struct {
     Thumb thumb_cache[THUMB_CACHE_MAX];
     long  current_file_size;
     time_t current_mod_time;
+    SDL_Rect open_button_rect;
+    SDL_Rect info_button_rect;
+    SDL_Rect thumbs_button_rect;
+    SDL_Rect fit_button_rect;
+    SDL_Rect actual_button_rect;
 } App;
 
 // ── Security helpers ──────────────────────────────────────────────────────────
@@ -126,8 +139,10 @@ SecurityResult validate_image_size(long sz) {
 
 void secure_strncpy(char *dst, const char *src, size_t n) {
     if (!dst || !src || n == 0) return;
-    strncpy(dst, src, n - 1);
-    dst[n - 1] = '\0';
+    size_t len = strlen(src);
+    if (len >= n) len = n - 1;
+    memcpy(dst, src, len);
+    dst[len] = '\0';
 }
 
 void secure_memzero(void *p, size_t n) {
@@ -184,7 +199,10 @@ static const char* find_font(void) {
         "/System/Library/Fonts/Helvetica.ttc",
         "/Library/Fonts/Arial.ttf",
 #else
+        "/usr/share/fonts/Adwaita/AdwaitaSans-Regular.ttf",
+        "/usr/share/fonts/TTF/JetBrainsMono-Regular.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
         "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
@@ -218,6 +236,236 @@ void draw_text(App *app, TTF_Font *font,
     SDL_Rect dst = {x, y, w, h};
     SDL_RenderCopy(app->renderer, tex, NULL, &dst);
     SDL_DestroyTexture(tex);
+}
+
+static int point_in_rect(int x, int y, const SDL_Rect *rect) {
+    return rect && rect->w > 0 && rect->h > 0 &&
+           x >= rect->x && x < rect->x + rect->w &&
+           y >= rect->y && y < rect->y + rect->h;
+}
+
+static int clamp_int(int value, int min_value, int max_value) {
+    if (value < min_value) return min_value;
+    if (value > max_value) return max_value;
+    return value;
+}
+
+static int text_width(TTF_Font *font, const char *text) {
+    int w = 0;
+    if (!font || !text) return 0;
+    if (TTF_SizeUTF8(font, text, &w, NULL) != 0) return 0;
+    return w;
+}
+
+static void fit_text_to_width(TTF_Font *font, const char *text, int max_w,
+                              char *out, size_t out_sz) {
+    if (!out || out_sz == 0) return;
+    out[0] = '\0';
+    if (!text) return;
+
+    secure_strncpy(out, text, out_sz);
+    if (!font || max_w <= 0) return;
+
+    if (text_width(font, out) <= max_w) return;
+    if (text_width(font, "...") > max_w) {
+        out[0] = '\0';
+        return;
+    }
+
+    size_t len = strlen(text);
+    while (len > 0) {
+        len--;
+        snprintf(out, out_sz, "%.*s...", (int)len, text);
+        if (text_width(font, out) <= max_w) return;
+    }
+
+    secure_strncpy(out, "...", out_sz);
+}
+
+static void draw_text_centered(App *app, TTF_Font *font,
+                               const char *text, SDL_Rect rect,
+                               SDL_Color color) {
+    if (!app || !font || !text || rect.w <= 0 || rect.h <= 0) return;
+    int w = 0, h = 0;
+    if (TTF_SizeUTF8(font, text, &w, &h) != 0) return;
+    draw_text(app, font, text,
+              rect.x + (rect.w - w) / 2,
+              rect.y + (rect.h - h) / 2, color);
+}
+
+static void draw_text_fitted(App *app, TTF_Font *font,
+                             const char *text, int x, int y,
+                             int max_w, SDL_Color color) {
+    char clipped[512];
+    fit_text_to_width(font, text, max_w, clipped, sizeof(clipped));
+    if (clipped[0]) draw_text(app, font, clipped, x, y, color);
+}
+
+static const char* filename_from_path(const char *path) {
+    const char *name;
+    if (!path || !path[0]) return "No Image Selected";
+    name = strrchr(path, PATH_SEP);
+    return name ? name + 1 : path;
+}
+
+static void directory_from_path(const char *path, char *out, size_t out_sz) {
+    if (!out || out_sz == 0) return;
+    out[0] = '\0';
+    if (!path || !path[0]) {
+        secure_strncpy(out, ".", out_sz);
+        return;
+    }
+
+    secure_strncpy(out, path, out_sz);
+    char *sep = strrchr(out, PATH_SEP);
+    if (sep) *sep = '\0';
+    else secure_strncpy(out, ".", out_sz);
+}
+
+static int get_info_panel_width(const App *app) {
+    if (!app || !app->show_info) return 0;
+    int width = clamp_int(app->window_width / 3, PANEL_MIN_W, PANEL_MAX_W);
+    int allowed = app->window_width - UI_MARGIN * 2 - PANEL_MIN_CANVAS_W;
+    if (allowed < 180) allowed = app->window_width / 2;
+    if (allowed < 180) allowed = 180;
+    if (width > allowed) width = allowed;
+    return width;
+}
+
+static SDL_Rect get_toolbar_rect(const App *app) {
+    SDL_Rect rect = {0, 0, 0, 0};
+    if (!app) return rect;
+    rect.x = UI_MARGIN;
+    rect.y = UI_MARGIN;
+    rect.w = app->window_width - UI_MARGIN * 2;
+    rect.h = TOOLBAR_H;
+    if (rect.w < 0) rect.w = 0;
+    return rect;
+}
+
+static SDL_Rect get_workspace_rect(const App *app) {
+    SDL_Rect toolbar = get_toolbar_rect(app);
+    SDL_Rect rect = {0, 0, 0, 0};
+    if (!app) return rect;
+    rect.x = UI_MARGIN;
+    rect.y = toolbar.y + toolbar.h + UI_GAP;
+    rect.w = app->window_width - UI_MARGIN * 2;
+    rect.h = app->window_height - rect.y - UI_MARGIN;
+    if (rect.w < 0) rect.w = 0;
+    if (rect.h < 0) rect.h = 0;
+    return rect;
+}
+
+static SDL_Rect get_info_panel_rect(const App *app) {
+    SDL_Rect workspace = get_workspace_rect(app);
+    SDL_Rect rect = {0, 0, 0, 0};
+    int panel_w = get_info_panel_width(app);
+    if (!panel_w) return rect;
+    rect.x = workspace.x + workspace.w - panel_w;
+    rect.y = workspace.y;
+    rect.w = panel_w;
+    rect.h = workspace.h;
+    return rect;
+}
+
+static int get_content_right_offset(const App *app) {
+    int panel_w = get_info_panel_width(app);
+    return panel_w ? panel_w + UI_GAP : 0;
+}
+
+static SDL_Rect get_thumbnail_rect(const App *app) {
+    SDL_Rect workspace = get_workspace_rect(app);
+    SDL_Rect rect = {0, 0, 0, 0};
+    if (!app || !app->show_thumbnails) return rect;
+    rect.x = workspace.x;
+    rect.w = workspace.w - get_content_right_offset(app);
+    rect.h = THUMB_STRIP_H;
+    rect.y = workspace.y + workspace.h - rect.h;
+    if (rect.w < THUMB_W + THUMB_PAD * 2 || rect.h <= 0) rect = (SDL_Rect){0, 0, 0, 0};
+    return rect;
+}
+
+static SDL_Rect get_status_rect(const App *app) {
+    SDL_Rect workspace = get_workspace_rect(app);
+    SDL_Rect thumb = get_thumbnail_rect(app);
+    SDL_Rect rect = {0, 0, 0, 0};
+    if (!app) return rect;
+    rect.x = workspace.x;
+    rect.w = workspace.w - get_content_right_offset(app);
+    rect.h = STATUS_BAR_H;
+    rect.y = thumb.h > 0
+           ? thumb.y - UI_GAP - rect.h
+           : workspace.y + workspace.h - rect.h;
+    if (rect.w < 140 || rect.y < workspace.y) rect = (SDL_Rect){0, 0, 0, 0};
+    return rect;
+}
+
+static SDL_Rect get_canvas_rect(const App *app) {
+    SDL_Rect workspace = get_workspace_rect(app);
+    SDL_Rect status = get_status_rect(app);
+    SDL_Rect rect = {0, 0, 0, 0};
+    int bottom = status.h > 0 ? status.y - UI_GAP : workspace.y + workspace.h;
+    if (!app) return rect;
+    rect.x = workspace.x;
+    rect.y = workspace.y;
+    rect.w = workspace.w - get_content_right_offset(app);
+    rect.h = bottom - workspace.y;
+    if (rect.w < 0) rect.w = 0;
+    if (rect.h < 0) rect.h = 0;
+    return rect;
+}
+
+static int get_button_width(TTF_Font *font, const char *label) {
+    int w = text_width(font, label);
+    if (w < 42) w = 42;
+    return w + TOOLBAR_BTN_PAD * 2;
+}
+
+static void draw_toolbar_button(App *app, SDL_Rect rect, const char *label,
+                                int active, int primary) {
+    SDL_Color text = {220, 228, 255, 255};
+    SDL_Color border = active
+                     ? (SDL_Color){95, 155, 255, 255}
+                     : (SDL_Color){68, 78, 110, 255};
+
+    if (!app || rect.w <= 0 || rect.h <= 0) return;
+
+    if (primary) {
+        SDL_SetRenderDrawColor(app->renderer, 72, 116, 255, 255);
+    } else if (active) {
+        SDL_SetRenderDrawColor(app->renderer, 36, 52, 96, 255);
+    } else {
+        SDL_SetRenderDrawColor(app->renderer, 24, 28, 44, 230);
+    }
+    SDL_RenderFillRect(app->renderer, &rect);
+
+    SDL_SetRenderDrawColor(app->renderer, border.r, border.g, border.b, border.a);
+    SDL_RenderDrawRect(app->renderer, &rect);
+
+    if (app->font_regular) {
+        char clipped[64];
+        fit_text_to_width(app->font_regular, label, rect.w - 12, clipped, sizeof(clipped));
+        draw_text_centered(app, app->font_regular, clipped, rect, text);
+    }
+}
+
+static void draw_info_row(App *app, SDL_Rect rect,
+                          const char *label, const char *value) {
+    SDL_Color label_col = {135, 150, 188, 255};
+    SDL_Color value_col = {244, 247, 255, 255};
+
+    if (!app || rect.w <= 0 || rect.h <= 0) return;
+
+    SDL_SetRenderDrawColor(app->renderer, 18, 22, 36, 225);
+    SDL_RenderFillRect(app->renderer, &rect);
+    SDL_SetRenderDrawColor(app->renderer, 52, 66, 104, 255);
+    SDL_RenderDrawRect(app->renderer, &rect);
+
+    if (!app->font_regular) return;
+
+    draw_text(app, app->font_regular, label, rect.x + 12, rect.y + 7, label_col);
+    draw_text_fitted(app, app->font_bold ? app->font_bold : app->font_regular,
+                     value, rect.x + 12, rect.y + 24, rect.w - 24, value_col);
 }
 
 // ── Window title ──────────────────────────────────────────────────────────────
@@ -539,8 +787,10 @@ void copy_to_clipboard(App *app) {
         GlobalFree(hMem);
     }
 #else
-    SDL_SetClipboardText(app->current_path);
-    SDL_Log("Path copied: %s", app->current_path);
+    if (SDL_SetClipboardText(app->current_path) == 0)
+        SDL_Log("Image path copied to clipboard: %s", app->current_path);
+    else
+        SDL_Log("Clipboard copy failed: %s", SDL_GetError());
 #endif
 }
 
@@ -566,7 +816,15 @@ void delete_current_image(App *app) {
     SDL_ShowMessageBox(&mbd, &btn);
     if (btn != 1) return;
 
-    remove(path);
+    if (remove(path) != 0) {
+        char err[MAX_PATH_LENGTH + 128];
+        snprintf(err, sizeof(err), "Failed to delete \"%s\": %s",
+                 fname, strerror(errno));
+        SDL_Log("%s", err);
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,
+                                 "Delete Failed", err, app->window);
+        return;
+    }
 
     for (int i = 0; i < THUMB_CACHE_MAX; i++) {
         if (strcmp(app->thumb_cache[i].path, path) == 0) {
@@ -599,51 +857,92 @@ void delete_current_image(App *app) {
 // ── Rendering ─────────────────────────────────────────────────────────────────
 void render_image(App *app) {
     if (!app) return;
-    SDL_SetRenderDrawColor(app->renderer, 25, 25, 35, 255);
+    SDL_SetRenderDrawColor(app->renderer, 12, 14, 24, 255);
     SDL_RenderClear(app->renderer);
 
+    SDL_Rect canvas = get_canvas_rect(app);
+    if (canvas.w > 0 && canvas.h > 0) {
+        SDL_SetRenderDrawColor(app->renderer, 18, 20, 32, 255);
+        SDL_RenderFillRect(app->renderer, &canvas);
+        SDL_SetRenderDrawColor(app->renderer, 38, 44, 64, 255);
+        SDL_RenderDrawRect(app->renderer, &canvas);
+    }
+
+    if (canvas.w <= 0 || canvas.h <= 0) return;
+
     if (!app->image_texture) {
+        SDL_Rect empty = {
+            canvas.x + clamp_int((canvas.w - 420) / 2, 18, canvas.w / 4),
+            canvas.y + clamp_int((canvas.h - 156) / 2, 18, canvas.h / 3),
+            clamp_int(canvas.w - 80, 280, 460),
+            156
+        };
+        SDL_Color title_col = {238, 242, 255, 255};
+        SDL_Color body_col = {149, 160, 198, 255};
+
+        SDL_SetRenderDrawColor(app->renderer, 16, 19, 31, 238);
+        SDL_RenderFillRect(app->renderer, &empty);
+        SDL_SetRenderDrawColor(app->renderer, 78, 118, 255, 255);
+        SDL_RenderDrawRect(app->renderer, &empty);
+
+        SDL_Rect glow = {empty.x, empty.y, empty.w, 4};
+        SDL_SetRenderDrawColor(app->renderer, 78, 118, 255, 255);
+        SDL_RenderFillRect(app->renderer, &glow);
+
         if (app->font_regular) {
-            SDL_Color c = {160, 160, 200, 255};
-            draw_text(app, app->font_regular,
-                      "Press O to open an image, or drag & drop a file here",
-                      app->window_width / 2 - 200,
-                      app->window_height / 2 - 10, c);
+            draw_text(app, app->font_bold ? app->font_bold : app->font_regular,
+                      "Drop an image or press Open", empty.x + 18, empty.y + 24,
+                      title_col);
+            draw_text_fitted(app, app->font_regular,
+                             "Photon keeps things practical for ' THE ABSURDIST '.",
+                             empty.x + 18, empty.y + 58, empty.w - 36, body_col);
+            draw_text_fitted(app, app->font_regular,
+                             "Drag files here, click Open, or use O to start browsing.",
+                             empty.x + 18, empty.y + 84, empty.w - 36, body_col);
+            draw_text_fitted(app, app->font_regular,
+                             "Toolbar buttons are clickable now, including Info and Strip.",
+                             empty.x + 18, empty.y + 110, empty.w - 36, body_col);
         }
         return;
     }
+
+    SDL_Rect viewport = {
+        canvas.x + 12,
+        canvas.y + 12,
+        canvas.w - 24,
+        canvas.h - 24
+    };
+    if (viewport.w <= 0 || viewport.h <= 0) return;
 
     int eff_w = (app->rotation == 90 || app->rotation == 270)
                 ? app->image_height : app->image_width;
     int eff_h = (app->rotation == 90 || app->rotation == 270)
                 ? app->image_width  : app->image_height;
-    int area_h = app->show_thumbnails
-                 ? app->window_height - THUMB_STRIP_H
-                 : app->window_height;
 
     SDL_Rect dest;
     if (app->fit_to_window) {
         float ar  = (float)eff_w / eff_h;
-        float war = (float)app->window_width / area_h;
+        float war = (float)viewport.w / viewport.h;
         if (ar > war) {
-            dest.w = app->window_width;
-            dest.h = (int)(app->window_width / ar);
-            dest.x = 0;
-            dest.y = (area_h - dest.h) / 2;
+            dest.w = viewport.w;
+            dest.h = (int)(viewport.w / ar);
+            dest.x = viewport.x;
+            dest.y = viewport.y + (viewport.h - dest.h) / 2;
         } else {
-            dest.h = area_h;
-            dest.w = (int)(area_h * ar);
-            dest.x = (app->window_width - dest.w) / 2;
-            dest.y = 0;
+            dest.h = viewport.h;
+            dest.w = (int)(viewport.h * ar);
+            dest.x = viewport.x + (viewport.w - dest.w) / 2;
+            dest.y = viewport.y;
         }
     } else {
         dest.w = (int)(eff_w * app->zoom);
         dest.h = (int)(eff_h * app->zoom);
         if (dest.w <= 0 || dest.h <= 0 || dest.w > 65536 || dest.h > 65536) return;
-        dest.x = app->pan_x + (app->window_width - dest.w) / 2;
-        dest.y = app->pan_y + (area_h - dest.h) / 2;
+        dest.x = app->pan_x + viewport.x + (viewport.w - dest.w) / 2;
+        dest.y = app->pan_y + viewport.y + (viewport.h - dest.h) / 2;
     }
 
+    SDL_RenderSetClipRect(app->renderer, &viewport);
     SDL_SetRenderDrawColor(app->renderer, 0, 0, 0, 60);
     SDL_Rect shadow = {dest.x + 4, dest.y + 4, dest.w, dest.h};
     SDL_RenderFillRect(app->renderer, &shadow);
@@ -653,117 +952,226 @@ void render_image(App *app) {
 
     SDL_SetRenderDrawColor(app->renderer, 80, 80, 100, 255);
     SDL_RenderDrawRect(app->renderer, &dest);
+    SDL_RenderSetClipRect(app->renderer, NULL);
+}
+
+void render_toolbar(App *app) {
+    SDL_Rect bar = get_toolbar_rect(app);
+    SDL_Color title_col = {245, 247, 255, 255};
+    SDL_Color sub_col   = {142, 154, 192, 255};
+
+    if (!app || bar.w <= 0 || bar.h <= 0) return;
+
+    app->open_button_rect   = (SDL_Rect){0, 0, 0, 0};
+    app->info_button_rect   = (SDL_Rect){0, 0, 0, 0};
+    app->thumbs_button_rect = (SDL_Rect){0, 0, 0, 0};
+    app->fit_button_rect    = (SDL_Rect){0, 0, 0, 0};
+    app->actual_button_rect = (SDL_Rect){0, 0, 0, 0};
+
+    SDL_SetRenderDrawColor(app->renderer, 16, 18, 30, 235);
+    SDL_RenderFillRect(app->renderer, &bar);
+    SDL_SetRenderDrawColor(app->renderer, 48, 58, 90, 255);
+    SDL_RenderDrawRect(app->renderer, &bar);
+
+    SDL_Rect accent = {bar.x, bar.y, 5, bar.h};
+    SDL_SetRenderDrawColor(app->renderer, 78, 118, 255, 255);
+    SDL_RenderFillRect(app->renderer, &accent);
+
+    int btn_y = bar.y + (bar.h - TOOLBAR_BTN_H) / 2;
+    int cursor_x = bar.x + bar.w - 12;
+    int w = get_button_width(app->font_regular, "1:1");
+
+    app->actual_button_rect = (SDL_Rect){cursor_x - w, btn_y, w, TOOLBAR_BTN_H};
+    cursor_x = app->actual_button_rect.x - 8;
+
+    w = get_button_width(app->font_regular, "Fit");
+    app->fit_button_rect = (SDL_Rect){cursor_x - w, btn_y, w, TOOLBAR_BTN_H};
+    cursor_x = app->fit_button_rect.x - 8;
+
+    w = get_button_width(app->font_regular, "Strip");
+    app->thumbs_button_rect = (SDL_Rect){cursor_x - w, btn_y, w, TOOLBAR_BTN_H};
+    cursor_x = app->thumbs_button_rect.x - 8;
+
+    w = get_button_width(app->font_regular, "Info");
+    app->info_button_rect = (SDL_Rect){cursor_x - w, btn_y, w, TOOLBAR_BTN_H};
+    cursor_x = app->info_button_rect.x - 8;
+
+    w = get_button_width(app->font_regular, "Open");
+    app->open_button_rect = (SDL_Rect){cursor_x - w, btn_y, w, TOOLBAR_BTN_H};
+
+    draw_toolbar_button(app, app->actual_button_rect, "1:1",
+                        !app->fit_to_window &&
+                        app->zoom > 0.99f && app->zoom < 1.01f, 0);
+    draw_toolbar_button(app, app->fit_button_rect, "Fit", app->fit_to_window, 0);
+    draw_toolbar_button(app, app->thumbs_button_rect, "Strip", app->show_thumbnails, 0);
+    draw_toolbar_button(app, app->info_button_rect, "Info", app->show_info, 0);
+    draw_toolbar_button(app, app->open_button_rect, "Open", 1, 1);
+
+    if (app->font_regular) {
+        char title[256];
+        char subtitle[512];
+        int text_x = bar.x + 18;
+        int text_w = app->open_button_rect.x - text_x - 18;
+
+        if (app->current_path[0]) {
+            secure_strncpy(title, filename_from_path(app->current_path), sizeof(title));
+            snprintf(subtitle, sizeof(subtitle), "%d of %d  •  %s  •  %d x %d",
+                     app->file_list.count > 0 ? app->file_list.current + 1 : 1,
+                     app->file_list.count > 0 ? app->file_list.count : 1,
+                     get_format_name(app->current_path),
+                     app->image_width, app->image_height);
+        } else {
+            snprintf(title, sizeof(title), "Photon");
+            snprintf(subtitle, sizeof(subtitle),
+                     "Minimal image viewer for ' THE ABSURDIST '");
+        }
+
+        draw_text_fitted(app, app->font_bold ? app->font_bold : app->font_regular,
+                         title, text_x, bar.y + 10, text_w, title_col);
+        draw_text_fitted(app, app->font_regular, subtitle,
+                         text_x, bar.y + 30, text_w, sub_col);
+    }
 }
 
 void render_info_panel(App *app) {
-    if (!app || !app->show_info || !app->image_texture || !app->font_regular) return;
+    SDL_Rect panel = get_info_panel_rect(app);
+    SDL_Color title_col  = {245, 247, 255, 255};
+    SDL_Color text_col   = {162, 174, 208, 255};
+    SDL_Color badge_text = {233, 239, 255, 255};
 
-    int panel_h = INFO_PAD * 2 + INFO_LINE_H * INFO_LINES + 8;
-    SDL_Rect panel = {15, 15, INFO_W, panel_h};
+    if (!app || !app->show_info || panel.w <= 0 || panel.h <= 0) return;
 
     SDL_SetRenderDrawBlendMode(app->renderer, SDL_BLENDMODE_BLEND);
-    SDL_SetRenderDrawColor(app->renderer, 10, 12, 24, 220);
+    SDL_SetRenderDrawColor(app->renderer, 12, 15, 26, 230);
     SDL_RenderFillRect(app->renderer, &panel);
 
-    SDL_SetRenderDrawColor(app->renderer, 65, 105, 225, 255);
+    SDL_SetRenderDrawColor(app->renderer, 52, 66, 104, 255);
     SDL_RenderDrawRect(app->renderer, &panel);
 
-    SDL_Rect accent_bar = {panel.x, panel.y, panel.w, 4};
-    SDL_SetRenderDrawColor(app->renderer, 65, 105, 225, 255);
-    SDL_RenderFillRect(app->renderer, &accent_bar);
+    SDL_Rect header = {panel.x + 1, panel.y + 1, panel.w - 2, 88};
+    SDL_SetRenderDrawColor(app->renderer, 19, 24, 40, 245);
+    SDL_RenderFillRect(app->renderer, &header);
 
-    int tx = panel.x + INFO_PAD;
-    int ty = panel.y + INFO_PAD + 6;
+    SDL_Rect accent = {header.x, header.y, header.w, 4};
+    SDL_SetRenderDrawColor(app->renderer, 78, 118, 255, 255);
+    SDL_RenderFillRect(app->renderer, &accent);
 
-    SDL_Color white      = {255, 255, 255, 255};
-    SDL_Color grey       = {160, 170, 200, 255};
-    SDL_Color accent_col = {100, 160, 255, 255};
+    if (app->font_regular) {
+        if (app->image_texture) {
+            char folder[MAX_PATH_LENGTH];
+            char format[32];
+            int badge_w;
 
-    draw_text(app, app->font_bold, "Image Info", tx, ty, accent_col);
-    ty += INFO_LINE_H + 4;
+            directory_from_path(app->current_path, folder, sizeof(folder));
+            snprintf(format, sizeof(format), "%s", get_format_name(app->current_path));
 
-    SDL_SetRenderDrawColor(app->renderer, 50, 70, 120, 255);
-    SDL_RenderDrawLine(app->renderer, tx, ty, panel.x + panel.w - INFO_PAD, ty);
-    ty += 8;
+            draw_text(app, app->font_bold ? app->font_bold : app->font_regular,
+                      "Image Info", header.x + INFO_PAD, header.y + 14,
+                      (SDL_Color){126, 170, 255, 255});
+            draw_text_fitted(app, app->font_bold ? app->font_bold : app->font_regular,
+                             filename_from_path(app->current_path),
+                             header.x + INFO_PAD, header.y + 38,
+                             header.w - INFO_PAD * 2 - 74, title_col);
+            draw_text_fitted(app, app->font_regular, folder,
+                             header.x + INFO_PAD, header.y + 60,
+                             header.w - INFO_PAD * 2, text_col);
 
-    const char *full_name = strrchr(app->current_path, PATH_SEP);
-    full_name = full_name ? full_name + 1 : app->current_path;
-    char trunc[48];
-    if (strlen(full_name) > 34) {
-        snprintf(trunc, sizeof(trunc), "%.31s...", full_name);
-        full_name = trunc;
+            badge_w = clamp_int(text_width(app->font_regular, format) + 24, 58, 84);
+            SDL_Rect badge = {header.x + header.w - badge_w - INFO_PAD,
+                              header.y + 14, badge_w, 26};
+            SDL_SetRenderDrawColor(app->renderer, 45, 66, 126, 255);
+            SDL_RenderFillRect(app->renderer, &badge);
+            SDL_SetRenderDrawColor(app->renderer, 86, 132, 255, 255);
+            SDL_RenderDrawRect(app->renderer, &badge);
+            draw_text_centered(app, app->font_regular, format, badge, badge_text);
+        } else {
+            draw_text(app, app->font_bold ? app->font_bold : app->font_regular,
+                      "Image Info", header.x + INFO_PAD, header.y + 14,
+                      (SDL_Color){126, 170, 255, 255});
+            draw_text(app, app->font_bold ? app->font_bold : app->font_regular,
+                      "No image selected", header.x + INFO_PAD, header.y + 42,
+                      title_col);
+            draw_text_fitted(app, app->font_regular,
+                             "Open a file, drag one in, or let ' THE ABSURDIST ' choose the next mystery.",
+                             header.x + INFO_PAD, header.y + 64,
+                             header.w - INFO_PAD * 2, text_col);
+        }
     }
-    draw_text(app, app->font_bold,    "File",     tx,      ty, grey);
-    draw_text(app, app->font_regular, full_name,  tx + 70, ty, white);
-    ty += INFO_LINE_H;
 
-    char fmt_buf[64];
-    snprintf(fmt_buf, sizeof(fmt_buf), "%s", get_format_name(app->current_path));
-    draw_text(app, app->font_bold,    "Format",   tx,      ty, grey);
-    draw_text(app, app->font_regular, fmt_buf,    tx + 70, ty, white);
-    ty += INFO_LINE_H;
+    if (!app->image_texture) return;
 
-    char dim_buf[32];
-    snprintf(dim_buf, sizeof(dim_buf), "%d x %d px", app->image_width, app->image_height);
-    draw_text(app, app->font_bold,    "Size",     tx,      ty, grey);
-    draw_text(app, app->font_regular, dim_buf,    tx + 70, ty, white);
-    ty += INFO_LINE_H;
+    int y = header.y + header.h + 12;
+    int row_w = panel.w - INFO_PAD * 2;
+    char value[128];
+    char modified[64];
+    char folder[MAX_PATH_LENGTH];
+    char aspect[64];
 
-    float ar = (float)app->image_width / (float)app->image_height;
-    char ar_buf[32];
-    snprintf(ar_buf, sizeof(ar_buf), "%.2f : 1", ar);
-    draw_text(app, app->font_bold,    "Aspect",   tx,      ty, grey);
-    draw_text(app, app->font_regular, ar_buf,     tx + 70, ty, white);
-    ty += INFO_LINE_H;
+    snprintf(value, sizeof(value), "%d x %d px", app->image_width, app->image_height);
+    draw_info_row(app, (SDL_Rect){panel.x + INFO_PAD, y, row_w, INFO_ROW_H},
+                  "Dimensions", value);
+    y += INFO_ROW_H + 10;
 
-    char fs_buf[32];
-    snprintf(fs_buf, sizeof(fs_buf), "%s", format_file_size(app->current_file_size));
-    draw_text(app, app->font_bold,    "Filesize", tx,      ty, grey);
-    draw_text(app, app->font_regular, fs_buf,     tx + 70, ty, white);
-    ty += INFO_LINE_H;
+    snprintf(value, sizeof(value), "%s", format_file_size(app->current_file_size));
+    draw_info_row(app, (SDL_Rect){panel.x + INFO_PAD, y, row_w, INFO_ROW_H},
+                  "File Size", value);
+    y += INFO_ROW_H + 10;
+
+    if (app->fit_to_window) snprintf(value, sizeof(value), "Fit to window");
+    else snprintf(value, sizeof(value), "%.0f%%", app->zoom * 100.f);
+    draw_info_row(app, (SDL_Rect){panel.x + INFO_PAD, y, row_w, INFO_ROW_H},
+                  "Zoom", value);
+    y += INFO_ROW_H + 10;
+
+    snprintf(value, sizeof(value), "%d deg", app->rotation);
+    draw_info_row(app, (SDL_Rect){panel.x + INFO_PAD, y, row_w, INFO_ROW_H},
+                  "Rotation", value);
+    y += INFO_ROW_H + 10;
+
+    snprintf(aspect, sizeof(aspect), "%.2f : 1",
+             (float)app->image_width / (float)app->image_height);
+    draw_info_row(app, (SDL_Rect){panel.x + INFO_PAD, y, row_w, INFO_ROW_H},
+                  "Aspect", aspect);
+    y += INFO_ROW_H + 10;
 
     if (app->current_mod_time > 0) {
-        char date_buf[32];
-        strftime(date_buf, sizeof(date_buf), "%Y-%m-%d %H:%M",
+        strftime(modified, sizeof(modified), "%Y-%m-%d %H:%M",
                  localtime(&app->current_mod_time));
-        draw_text(app, app->font_bold,    "Modified", tx,      ty, grey);
-        draw_text(app, app->font_regular, date_buf,   tx + 70, ty, white);
-        ty += INFO_LINE_H;
+    } else {
+        secure_strncpy(modified, "Unknown", sizeof(modified));
     }
+    draw_info_row(app, (SDL_Rect){panel.x + INFO_PAD, y, row_w, INFO_ROW_H},
+                  "Modified", modified);
+    y += INFO_ROW_H + 10;
 
-    char zoom_buf[32];
-    snprintf(zoom_buf, sizeof(zoom_buf), "%.0f%%", app->zoom * 100.f);
-    draw_text(app, app->font_bold,    "Zoom",     tx,      ty, grey);
-    draw_text(app, app->font_regular, zoom_buf,   tx + 70, ty, white);
-    ty += INFO_LINE_H;
+    if (app->file_list.count > 0)
+        snprintf(value, sizeof(value), "%d of %d",
+                 app->file_list.current + 1, app->file_list.count);
+    else
+        snprintf(value, sizeof(value), "Standalone");
+    draw_info_row(app, (SDL_Rect){panel.x + INFO_PAD, y, row_w, INFO_ROW_H},
+                  "Position", value);
+    y += INFO_ROW_H + 10;
 
-    char rot_buf[16];
-    snprintf(rot_buf, sizeof(rot_buf), "%d deg", app->rotation);
-    draw_text(app, app->font_bold,    "Rotation", tx,      ty, grey);
-    draw_text(app, app->font_regular, rot_buf,    tx + 70, ty, white);
-    ty += INFO_LINE_H;
-
-    char idx_buf[32];
-    snprintf(idx_buf, sizeof(idx_buf), "%d of %d",
-             app->file_list.current + 1, app->file_list.count);
-    draw_text(app, app->font_bold,    "Index",    tx,      ty, grey);
-    draw_text(app, app->font_regular, idx_buf,    tx + 70, ty, white);
+    directory_from_path(app->current_path, folder, sizeof(folder));
+    draw_info_row(app, (SDL_Rect){panel.x + INFO_PAD, y, row_w, INFO_ROW_H},
+                  "Folder", folder);
 }
 
 void render_thumbnail_strip(App *app) {
-    if (!app || !app->show_thumbnails || app->file_list.count == 0) return;
-
-    int strip_y = app->window_height - THUMB_STRIP_H;
+    SDL_Rect strip = get_thumbnail_rect(app);
+    if (!app || !app->show_thumbnails || app->file_list.count == 0 || strip.w <= 0) return;
 
     SDL_SetRenderDrawColor(app->renderer, 12, 12, 22, 230);
-    SDL_Rect bg = {0, strip_y, app->window_width, THUMB_STRIP_H};
-    SDL_RenderFillRect(app->renderer, &bg);
+    SDL_RenderFillRect(app->renderer, &strip);
 
     SDL_SetRenderDrawColor(app->renderer, 55, 75, 125, 255);
-    SDL_Rect sep = {0, strip_y, app->window_width, 2};
+    SDL_Rect sep = {strip.x, strip.y, strip.w, 2};
     SDL_RenderFillRect(app->renderer, &sep);
+    SDL_SetRenderDrawColor(app->renderer, 48, 58, 90, 255);
+    SDL_RenderDrawRect(app->renderer, &strip);
 
-    int visible = app->window_width / THUMB_SLOT_W;
+    int visible = (strip.w - THUMB_PAD * 2) / THUMB_SLOT_W;
     if (visible < 1) visible = 1;
     int start = app->file_list.current - visible / 2;
     if (start < 0) start = 0;
@@ -771,17 +1179,17 @@ void render_thumbnail_strip(App *app) {
         start = app->file_list.count - visible;
     if (start < 0) start = 0;
 
-    int x = THUMB_PAD;
+    int x = strip.x + THUMB_PAD;
     for (int i = start; i < start + visible && i < app->file_list.count; i++) {
         int cur = (i == app->file_list.current);
 
         if (cur) {
             SDL_SetRenderDrawColor(app->renderer, 70, 120, 255, 255);
-            SDL_Rect hl = {x - 2, strip_y + THUMB_PAD - 2, THUMB_W + 4, THUMB_H + 4};
+            SDL_Rect hl = {x - 2, strip.y + THUMB_PAD - 2, THUMB_W + 4, THUMB_H + 4};
             SDL_RenderFillRect(app->renderer, &hl);
         }
 
-        SDL_Rect slot = {x, strip_y + THUMB_PAD, THUMB_W, THUMB_H};
+        SDL_Rect slot = {x, strip.y + THUMB_PAD, THUMB_W, THUMB_H};
         SDL_SetRenderDrawColor(app->renderer, 28, 28, 40, 255);
         SDL_RenderFillRect(app->renderer, &slot);
 
@@ -795,12 +1203,12 @@ void render_thumbnail_strip(App *app) {
                 dst.w = THUMB_W;
                 dst.h = (int)(THUMB_W / tar);
                 dst.x = x;
-                dst.y = strip_y + THUMB_PAD + (THUMB_H - dst.h) / 2;
+                dst.y = strip.y + THUMB_PAD + (THUMB_H - dst.h) / 2;
             } else {
                 dst.h = THUMB_H;
                 dst.w = (int)(THUMB_H * tar);
                 dst.x = x + (THUMB_W - dst.w) / 2;
-                dst.y = strip_y + THUMB_PAD;
+                dst.y = strip.y + THUMB_PAD;
             }
             SDL_RenderCopy(app->renderer, tex, NULL, &dst);
         }
@@ -813,19 +1221,43 @@ void render_thumbnail_strip(App *app) {
 }
 
 void render_hint_bar(App *app) {
-    if (!app || !app->font_regular) return;
-    static const char *hints =
-        "O: Open   </> : Navigate   R: Rotate   I: Info   "
-        "T: Thumbnails   Ctrl+C: Copy   Del: Delete";
-    SDL_Color c = {90, 100, 140, 255};
-    int y = app->show_thumbnails
-            ? app->window_height - THUMB_STRIP_H - 18
-            : app->window_height - 18;
-    draw_text(app, app->font_regular, hints, 8, y, c);
+    SDL_Rect bar = get_status_rect(app);
+    if (!app || bar.w <= 0 || bar.h <= 0) return;
+
+    SDL_SetRenderDrawColor(app->renderer, 15, 17, 28, 238);
+    SDL_RenderFillRect(app->renderer, &bar);
+    SDL_SetRenderDrawColor(app->renderer, 48, 58, 90, 255);
+    SDL_RenderDrawRect(app->renderer, &bar);
+
+    if (!app->font_regular) return;
+
+#ifdef _WIN32
+    static const char *copy_hint = "Ctrl+C copy image";
+#else
+    static const char *copy_hint = "Ctrl+C copy path";
+#endif
+    SDL_Color c = {122, 135, 176, 255};
+    char summary[512];
+
+    if (app->image_texture) {
+        snprintf(summary, sizeof(summary),
+                 "%s  •  R rotate  •  %s  •  Del delete  •  %s",
+                 app->fit_to_window ? "Fit mode" : "Drag pan + scroll zoom",
+                 copy_hint,
+                 app->show_info ? "Info open" : "I opens info");
+    } else {
+        snprintf(summary, sizeof(summary),
+                 "O open  •  drag files here  •  I info  •  T strip  •  %s",
+                 copy_hint);
+    }
+
+    draw_text_fitted(app, app->font_regular, summary,
+                     bar.x + 12, bar.y + 8, bar.w - 24, c);
 }
 
 void render(App *app) {
     render_image(app);
+    render_toolbar(app);
     render_thumbnail_strip(app);
     render_info_panel(app);
     render_hint_bar(app);
@@ -914,20 +1346,42 @@ void handle_events(App *app) {
 
         case SDL_MOUSEBUTTONDOWN:
             if (ev.button.button == SDL_BUTTON_LEFT) {
-                if (app->show_thumbnails &&
-                    ev.button.y > app->window_height - THUMB_STRIP_H &&
-                    app->file_list.count > 0) {
-                    int visible = app->window_width / THUMB_SLOT_W;
+                SDL_Rect thumbs_rect = get_thumbnail_rect(app);
+                SDL_Rect canvas = get_canvas_rect(app);
+
+                if (point_in_rect(ev.button.x, ev.button.y, &app->open_button_rect)) {
+                    open_image(app);
+                } else if (point_in_rect(ev.button.x, ev.button.y, &app->info_button_rect)) {
+                    app->show_info = !app->show_info;
+                } else if (point_in_rect(ev.button.x, ev.button.y, &app->thumbs_button_rect)) {
+                    app->show_thumbnails = !app->show_thumbnails;
+                } else if (point_in_rect(ev.button.x, ev.button.y, &app->fit_button_rect)) {
+                    app->fit_to_window = 1;
+                    app->zoom = 1.f;
+                    app->pan_x = 0;
+                    app->pan_y = 0;
+                } else if (point_in_rect(ev.button.x, ev.button.y, &app->actual_button_rect)) {
+                    app->fit_to_window = 0;
+                    app->zoom = 1.f;
+                    app->pan_x = 0;
+                    app->pan_y = 0;
+                } else if (app->show_thumbnails &&
+                           point_in_rect(ev.button.x, ev.button.y, &thumbs_rect) &&
+                           app->file_list.count > 0) {
+                    int visible = (thumbs_rect.w - THUMB_PAD * 2) / THUMB_SLOT_W;
                     if (visible < 1) visible = 1;
                     int start = app->file_list.current - visible / 2;
                     if (start < 0) start = 0;
                     if (start + visible > app->file_list.count)
                         start = app->file_list.count - visible;
                     if (start < 0) start = 0;
-                    int clicked = start + (ev.button.x - THUMB_PAD) / THUMB_SLOT_W;
+                    int clicked = start +
+                                (ev.button.x - (thumbs_rect.x + THUMB_PAD)) / THUMB_SLOT_W;
                     if (clicked >= 0 && clicked < app->file_list.count)
                         navigate_to(app, clicked);
-                } else {
+                } else if (!app->image_texture && point_in_rect(ev.button.x, ev.button.y, &canvas)) {
+                    open_image(app);
+                } else if (app->image_texture && point_in_rect(ev.button.x, ev.button.y, &canvas)) {
                     app->is_panning   = 1;
                     app->drag_start_x = ev.button.x;
                     app->drag_start_y = ev.button.y;

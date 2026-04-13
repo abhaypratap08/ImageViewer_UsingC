@@ -31,37 +31,27 @@ jobs:
 
           cp photon AppDir/usr/bin/photon
 
-          # Bundle SDL2 libraries
-          for lib in \
-            libSDL2-2.0.so.0 \
-            libSDL2_image-2.0.so.0 \
-            libSDL2_ttf-2.0.so.0; do
-            src=$(find /usr/lib -name "$lib" 2>/dev/null | head -1)
-            [ -n "$src" ] && cp "$src" AppDir/usr/lib/
+          ldd photon | awk '
+            /=> \// { print $3 }
+            /^\//    { print $1 }
+          ' | sort -u | while read -r lib; do
+            base="$(basename "$lib")"
+            case "$base" in
+              libc.so.*|libm.so.*|libpthread.so.*|librt.so.*|libdl.so.*|ld-linux*.so.*)
+                continue
+                ;;
+            esac
+            cp -L "$lib" AppDir/usr/lib/
           done
 
-          cat > AppDir/usr/share/applications/photon.desktop << 'DESKTOPEOF'
-          [Desktop Entry]
-          Name=Photon
-          Comment=Lightweight image viewer
-          Exec=photon %f
-          Icon=photon
-          Type=Application
-          Categories=Graphics;Viewer;
-          MimeType=image/png;image/jpeg;image/bmp;image/gif;image/x-tga;image/webp;
-          DESKTOPEOF
-
-          touch AppDir/usr/share/icons/hicolor/256x256/apps/photon.png
+          install -m 0644 installer/linux/photon.desktop \
+            AppDir/usr/share/applications/photon.desktop
+          install -m 0644 installer/photon.png \
+            AppDir/usr/share/icons/hicolor/256x256/apps/photon.png
           cp AppDir/usr/share/applications/photon.desktop AppDir/photon.desktop
           cp AppDir/usr/share/icons/hicolor/256x256/apps/photon.png AppDir/photon.png
 
-          cat > AppDir/AppRun << 'APPRUNEOF'
-          #!/bin/bash
-          HERE="$(dirname "$(readlink -f "${0}")")"
-          export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
-          exec "${HERE}/usr/bin/photon" "$@"
-          APPRUNEOF
-          chmod +x AppDir/AppRun
+          install -m 0755 installer/linux/AppRun AppDir/AppRun
 
       - name: Download appimagetool
         run: |
@@ -157,7 +147,7 @@ jobs:
 
             | Platform | File | Notes |
             |----------|------|-------|
-            | Windows (Installer) | `Photon-Setup.exe` | Installs to Program Files, adds file associations |
+            | Windows (Installer) | `Photon-Setup.exe` | Installs to Program Files, adds Photon to Open With |
             | Windows (Portable)  | `Photon-Windows.zip` | Extract and run `photon.exe` — no install needed |
             | Linux               | `Photon-x86_64.AppImage` | `chmod +x` then run |
 
@@ -169,7 +159,7 @@ jobs:
             | `R` / `Shift+R` | Rotate clockwise / counter-clockwise |
             | `I` | Toggle info panel |
             | `T` | Toggle thumbnail strip |
-            | `Ctrl+C` | Copy image to clipboard |
+            | `Ctrl+C` | Copy image on Windows, file path on Linux/macOS |
             | `Del` | Delete image (with confirmation) |
             | `F` | Fit to window |
             | `1` | Actual size |

@@ -28,7 +28,7 @@ chmod +x Photon-x86_64.AppImage && ./Photon-x86_64.AppImage
 - Rotate, zoom, pan — no menus, just keys
 - Native file open dialog on Windows, Linux (zenity/kdialog), and macOS
 - Drag & drop support
-- Clipboard copy — pastes as actual image data on Windows
+- Clipboard copy — image data on Windows, file path on Linux/macOS
 - Delete with confirmation
 - SDL_ttf text rendering — real fonts, not rectangles
 - Compiled with `-fstack-protector`, `-D_FORTIFY_SOURCE=2`, `-fPIE`, `-Wl,-z,relro,-z,now`
@@ -50,7 +50,7 @@ chmod +x Photon-x86_64.AppImage && ./Photon-x86_64.AppImage
 | `Shift+R` | Rotate 90° counter-clockwise |
 | `I` | Toggle info panel |
 | `T` | Toggle thumbnail strip |
-| `Ctrl+C` | Copy to clipboard |
+| `Ctrl+C` | Copy image on Windows, file path on Linux/macOS |
 | `Del` | Delete image (with confirmation) |
 | `Drag` | Pan |
 | `Drop` | Open dropped file |
