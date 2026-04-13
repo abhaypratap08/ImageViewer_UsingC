@@ -131,9 +131,13 @@ jobs:
     name: Create GitHub Release
     needs: [ build-linux, build-windows ]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: |
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v'))
     permissions:
       contents: write
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -141,9 +145,10 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Photon ${{ github.ref_name }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Photon ${{ env.RELEASE_TAG }}
           body: |
-            ## Photon Image Viewer ${{ github.ref_name }}
+            ## Photon Image Viewer ${{ env.RELEASE_TAG }}
 
             ### Downloads
 
