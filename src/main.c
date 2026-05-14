@@ -189,18 +189,42 @@ static int is_image_file(const char *name) {
 
 // ── Font helpers ──────────────────────────────────────────────────────────────
 static const char* find_font(App *app) {
+    static char detected_path[MAX_PATH_LENGTH];
+    detected_path[0] = '\0';
+
+    /* 1. Priority: CLI argument */
     if (app && app->custom_font_path[0]) {
         FILE *f = fopen(app->custom_font_path, "rb");
         if (f) { fclose(f); return app->custom_font_path; }
         SDL_Log("Warning: Custom font not found: %s", app->custom_font_path);
     }
 
+    /* 2. Priority: Environment variable */
     const char *env_font = getenv("PHOTON_FONT");
     if (env_font) {
         FILE *f = fopen(env_font, "rb");
         if (f) { fclose(f); return env_font; }
     }
 
+    /* 3. Priority: Dynamic System Detection (Linux/Unix) */
+#if !defined(_WIN32) && !defined(__APPLE__)
+    FILE *fp = popen("fc-match -f '%{file}' sans-serif 2>/dev/null", "r");
+    if (fp) {
+        if (fgets(detected_path, sizeof(detected_path), fp)) {
+            size_t len = strlen(detected_path);
+            if (len > 0 && detected_path[len - 1] == '\n') detected_path[len - 1] = '\0';
+            pclose(fp);
+            if (detected_path[0]) {
+                FILE *f = fopen(detected_path, "rb");
+                if (f) { fclose(f); return detected_path; }
+            }
+        } else {
+            pclose(fp);
+        }
+    }
+#endif
+
+    /* 4. Priority: Hardcoded Fallbacks */
     static const char *candidates[] = {
 #ifdef _WIN32
         "C:\\Windows\\Fonts\\segoeui.ttf",
@@ -212,12 +236,8 @@ static const char* find_font(App *app) {
         "/System/Library/Fonts/Helvetica.ttc",
         "/Library/Fonts/Arial.ttf",
 #else
-        "/usr/share/fonts/Adwaita/AdwaitaSans-Regular.ttf",
-        "/usr/share/fonts/TTF/JetBrainsMono-Regular.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
         "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
         "/usr/share/fonts/TTF/DejaVuSans.ttf",
 #endif
