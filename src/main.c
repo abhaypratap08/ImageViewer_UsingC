@@ -19,6 +19,7 @@
 #define PATH_SEP    '\\'
 #else
 #include <dirent.h>
+#include <unistd.h>
 #define PATH_SEP    '/'
 #endif
 
@@ -186,6 +187,50 @@ static int is_image_file(const char *name) {
             strcasecmp(ext, "gif")  == 0 || strcasecmp(ext, "tga")  == 0 ||
             strcasecmp(ext, "webp") == 0);
 }
+
+// ── Desktop Integration (Linux) ─────────────────────────────────────────────
+#if !defined(_WIN32) && !defined(__APPLE__)
+static void integrate_desktop(void) {
+    const char *appimage = getenv("APPIMAGE");
+    if (!appimage) return;
+
+    char home[MAX_PATH_LENGTH];
+    const char *h = getenv("HOME");
+    if (!h) return;
+    secure_strncpy(home, h, sizeof(home));
+
+    char desktop_path[MAX_PATH_LENGTH];
+    snprintf(desktop_path, sizeof(desktop_path), 
+             "%s/.local/share/applications/photon.desktop", home);
+
+    if (access(desktop_path, F_OK) == 0) return;
+
+    char dir[MAX_PATH_LENGTH];
+    snprintf(dir, sizeof(dir), "%s/.local/share/applications", home);
+    
+    /* Ensure directory exists */
+    char mkdir_cmd[MAX_PATH_LENGTH + 16];
+    snprintf(mkdir_cmd, sizeof(mkdir_cmd), "mkdir -p %s", dir);
+    system(mkdir_cmd);
+
+    FILE *f = fopen(desktop_path, "w");
+    if (!f) return;
+
+    fprintf(f, "[Desktop Entry]\n");
+    fprintf(f, "Name=Photon Image Viewer\n");
+    fprintf(f, "Comment=A lightweight image viewer built with C and SDL2\n");
+    fprintf(f, "Exec=%s %%f\n", appimage);
+    fprintf(f, "Icon=photon\n");
+    fprintf(f, "Terminal=false\n");
+    fprintf(f, "Type=Application\n");
+    fprintf(f, "Categories=Graphics;Viewer;\n");
+    fprintf(f, "MimeType=image/jpeg;image/png;image/bmp;image/gif;image/webp;image/x-tga;\n");
+    fprintf(f, "StartupNotify=true\n");
+    fclose(f);
+
+    SDL_Log("Desktop integration complete: %s", desktop_path);
+}
+#endif
 
 // ── Font helpers ──────────────────────────────────────────────────────────────
 static const char* find_font(App *app) {
@@ -1524,6 +1569,10 @@ int main(int argc, char *argv[]) {
     }
 
     if (!initialize_sdl(&app)) return 1;
+
+#if !defined(_WIN32) && !defined(__APPLE__)
+    integrate_desktop();
+#endif
 
     if (arg_idx < argc) open_image_path(&app, argv[arg_idx]);
     else                open_image(&app);
