@@ -95,6 +95,7 @@ typedef struct {
     int   pan_start_x,  pan_start_y;
     FileList file_list;
     char  current_path[MAX_PATH_LENGTH];
+    char  custom_font_path[MAX_PATH_LENGTH];
     Thumb thumb_cache[THUMB_CACHE_MAX];
     long  current_file_size;
     time_t current_mod_time;
@@ -187,7 +188,19 @@ static int is_image_file(const char *name) {
 }
 
 // ── Font helpers ──────────────────────────────────────────────────────────────
-static const char* find_font(void) {
+static const char* find_font(App *app) {
+    if (app && app->custom_font_path[0]) {
+        FILE *f = fopen(app->custom_font_path, "rb");
+        if (f) { fclose(f); return app->custom_font_path; }
+        SDL_Log("Warning: Custom font not found: %s", app->custom_font_path);
+    }
+
+    const char *env_font = getenv("PHOTON_FONT");
+    if (env_font) {
+        FILE *f = fopen(env_font, "rb");
+        if (f) { fclose(f); return env_font; }
+    }
+
     static const char *candidates[] = {
 #ifdef _WIN32
         "C:\\Windows\\Fonts\\segoeui.ttf",
@@ -639,7 +652,6 @@ char* open_file_dialog(void) {
     ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
     return GetOpenFileName(&ofn) ? fp : NULL;
 #elif defined(__APPLE__)
-    FILE *f = popen("osascript -e 'POSIX path of (choose file of type "
                     "{\"public.image\"} with prompt \"Open Image\")'", "r");
     if (!f) return NULL;
     if (fgets(fp, sizeof(fp), f)) {
@@ -1446,7 +1458,7 @@ int initialize_sdl(App *app) {
     SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
     SDL_GetWindowSize(app->window, &app->window_width, &app->window_height);
 
-    const char *font_path = find_font();
+    const char *font_path = find_font(app);
     if (font_path) {
         app->font_regular = TTF_OpenFont(font_path, 13);
         app->font_bold    = TTF_OpenFont(font_path, 13);
@@ -1480,10 +1492,21 @@ void cleanup(App *app) {
 // ── Entry point ───────────────────────────────────────────────────────────────
 int main(int argc, char *argv[]) {
     App app = {0};
+    int arg_idx = 1;
+
+    while (arg_idx < argc) {
+        if (strcmp(argv[arg_idx], "--font") == 0 && arg_idx + 1 < argc) {
+            secure_strncpy(app.custom_font_path, argv[arg_idx + 1], MAX_PATH_LENGTH);
+            arg_idx += 2;
+        } else {
+            break;
+        }
+    }
+
     if (!initialize_sdl(&app)) return 1;
 
-    if (argc >= 2) open_image_path(&app, argv[1]);
-    else           open_image(&app);
+    if (arg_idx < argc) open_image_path(&app, argv[arg_idx]);
+    else                open_image(&app);
 
     while (app.running) {
         handle_events(&app);
