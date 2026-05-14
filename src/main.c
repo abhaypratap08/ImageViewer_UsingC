@@ -200,18 +200,28 @@ static void integrate_desktop(void) {
     secure_strncpy(home, h, sizeof(home));
 
     char desktop_path[MAX_PATH_LENGTH];
-    snprintf(desktop_path, sizeof(desktop_path), 
-             "%s/.local/share/applications/photon.desktop", home);
+    {
+        int r = snprintf(desktop_path, sizeof(desktop_path),
+                         "%s/.local/share/applications/photon.desktop", home);
+        if (r < 0 || r >= (int)sizeof(desktop_path)) return;
+    }
 
     if (access(desktop_path, F_OK) == 0) return;
 
+    /* Ensure directory exists — use mkdir() directly, never system() */
     char dir[MAX_PATH_LENGTH];
-    snprintf(dir, sizeof(dir), "%s/.local/share/applications", home);
-    
-    /* Ensure directory exists */
-    char mkdir_cmd[MAX_PATH_LENGTH + 16];
-    snprintf(mkdir_cmd, sizeof(mkdir_cmd), "mkdir -p %s", dir);
-    system(mkdir_cmd);
+    {
+        int r;
+        r = snprintf(dir, sizeof(dir), "%s/.local", home);
+        if (r < 0 || r >= (int)sizeof(dir)) return;
+        mkdir(dir, 0755);
+        r = snprintf(dir, sizeof(dir), "%s/.local/share", home);
+        if (r < 0 || r >= (int)sizeof(dir)) return;
+        mkdir(dir, 0755);
+        r = snprintf(dir, sizeof(dir), "%s/.local/share/applications", home);
+        if (r < 0 || r >= (int)sizeof(dir)) return;
+        mkdir(dir, 0755);
+    }
 
     FILE *f = fopen(desktop_path, "w");
     if (!f) return;
