@@ -244,8 +244,6 @@ static void integrate_desktop(void) {
 
 // ── Font helpers ──────────────────────────────────────────────────────────────
 static const char* find_font(App *app) {
-    static char detected_path[MAX_PATH_LENGTH];
-    detected_path[0] = '\0';
 
     /* 1. Priority: CLI argument */
     if (app && app->custom_font_path[0]) {
@@ -263,6 +261,8 @@ static const char* find_font(App *app) {
 
     /* 3. Priority: Dynamic System Detection (Linux/Unix) */
 #if !defined(_WIN32) && !defined(__APPLE__)
+    static char detected_path[MAX_PATH_LENGTH];
+    detected_path[0] = '\0';
     FILE *fp = popen("fc-match -f '%{file}' sans-serif 2>/dev/null", "r");
     if (fp) {
         if (fgets(detected_path, sizeof(detected_path), fp)) {
