@@ -7,7 +7,9 @@ LOCAL_MODULE := main
 LOCAL_SRC_FILES := \
     ../../../src/main.c \
     ../../../src/motion.c \
-    ../../../src/ui.c
+    ../../../src/ui.c \
+    ../../../src/android/android_ui.c \
+    ../../../src/android/android_bridge.c
 
 LOCAL_C_INCLUDES := \
     $(LOCAL_PATH)/SDL/include/SDL2 \
@@ -22,7 +24,8 @@ LOCAL_CFLAGS := \
     -O2 \
     -Wall \
     -Wextra \
-    -fPIC
+    -fPIC \
+    -D_POSIX_C_SOURCE=200809L
 
 LOCAL_SHARED_LIBRARIES := \
     SDL2 \

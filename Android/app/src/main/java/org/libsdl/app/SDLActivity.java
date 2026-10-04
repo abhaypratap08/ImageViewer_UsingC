@@ -295,6 +295,13 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
         return new String[0];
     }
 
+    /** Hook for applications that need to resolve Android document URIs. */
+    protected void onOpenWithIntent(Intent intent) {
+        if (intent == null || intent.getData() == null) return;
+        String filename = intent.getData().getPath();
+        if (filename != null) onNativeDropFile(filename);
+    }
+
     public static void initialize() {
         // The static nature of the singleton and Android quirkyness force us to initialize everything here
         // Otherwise, when exiting the app and returning to it, these variables *keep* their pre exit values
@@ -418,14 +425,11 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
 
         getWindow().getDecorView().setOnSystemUiVisibilityChangeListener(this);
 
-        // Get filename from "Open with" of another application
+        // Let the concrete application resolve file/content URIs safely.
         Intent intent = getIntent();
         if (intent != null && intent.getData() != null) {
-            String filename = intent.getData().getPath();
-            if (filename != null) {
-                Log.v(TAG, "Got filename: " + filename);
-                SDLActivity.onNativeDropFile(filename);
-            }
+            Log.v(TAG, "Got open-with URI: " + intent.getData());
+            onOpenWithIntent(intent);
         }
     }
 

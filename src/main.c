@@ -21,6 +21,10 @@
 
 #include "motion.h"
 #include "ui.h"
+#ifdef __ANDROID__
+#include "android/android_bridge.h"
+#include "android/android_ui.h"
+#endif
 
 #ifdef _WIN32
 #include <windows.h>
@@ -150,6 +154,10 @@ typedef struct {
     char feedback[160];
     Uint32 feedback_until;
     int thumb_loaded_this_frame;
+#ifdef __ANDROID__
+    AndroidUI *android_ui;
+    int android_immersive;
+#endif
 } App;
 
 static void cancel_pointer(App *app);
@@ -250,7 +258,7 @@ static int is_image_file(const char *name) {
 }
 
 // ── Desktop Integration (Linux) ─────────────────────────────────────────────
-#if !defined(_WIN32) && !defined(__APPLE__)
+#if !defined(_WIN32) && !defined(__APPLE__) && !defined(__ANDROID__)
 static void integrate_desktop(void) {
     const char *appimage = getenv("APPIMAGE");
     if (!appimage) return;
@@ -320,8 +328,17 @@ static const char* find_font(App *app) {
         if (f) { fclose(f); return env_font; }
     }
 
+    /* Android receives a real file from the Java asset bridge. Android does
+     * not expose fc-match or desktop font paths to the native process. */
+#ifdef __ANDROID__
+    {
+        const char *bundled = android_font_path();
+        if (bundled && bundled[0]) return bundled;
+    }
+#endif
+
     /* 3. Priority: Dynamic System Detection (Linux/Unix) */
-#if !defined(_WIN32) && !defined(__APPLE__)
+#if !defined(_WIN32) && !defined(__APPLE__) && !defined(__ANDROID__)
     static char detected_path[MAX_PATH_LENGTH];
     detected_path[0] = '\0';
     FILE *fp = popen("fc-match -f '%{file}' sans-serif 2>/dev/null", "r");
@@ -729,6 +746,7 @@ static void set_actual_view(App *app) {
     reset_pan_motion(app, 0.0f, 0.0f);
 }
 
+#ifndef __ANDROID__
 static void update_pan_motion(App *app, float dt) {
     if (!app) return;
     photon_spring_step(&app->info_spring, dt, 0.30f, 1.0f,
@@ -750,6 +768,7 @@ static void update_pan_motion(App *app, float dt) {
     app->pan_x = app->pan_spring_x.value;
     app->pan_y = app->pan_spring_y.value;
 }
+#endif
 
 static void zoom_at(App *app, float factor, int x, int y) {
     SDL_Rect viewport;
@@ -1096,7 +1115,15 @@ void navigate_to(App *app, int index) {
         app->info_scroll = 0;
         app->feedback[0] = '\0';
         update_window_title(app);
+#ifdef __ANDROID__
+        android_ui_set_image(app->android_ui);
+        android_ui_set_rotation(app->android_ui, app->rotation);
+#endif
     } else {
+#ifdef __ANDROID__
+        android_ui_set_error(app->android_ui, 1,
+                             "The next image could not be decoded.");
+#endif
         feedback(app, "Couldn't open that image. The current image is unchanged.");
     }
 }
@@ -1123,8 +1150,15 @@ void open_image_path(App *app, const char *path) {
         app->info_scroll = 0;
         app->feedback[0] = '\0';
         update_window_title(app);
+#ifdef __ANDROID__
+        android_ui_set_image(app->android_ui);
+        android_ui_show_viewer(app->android_ui);
+#endif
     } else {
         feedback(app, "Couldn't open the image. Check its format, size and permissions.");
+#ifdef __ANDROID__
+        android_ui_set_error(app->android_ui, 1, app->feedback);
+#endif
     }
 }
 
@@ -1132,6 +1166,155 @@ void open_image(App *app) {
     char *path = open_file_dialog();
     if (path) open_image_path(app, path);
 }
+
+#ifdef __ANDROID__
+/* SAF selections are copied by Java into an app-owned cache session. Android
+ * supplies a newline-delimited list so navigation never scans an unrelated
+ * cache directory or assumes that a content:// URI is a POSIX path. */
+static void open_android_paths(App *app, const char *payload) {
+    char *copy, *save = NULL, *line;
+    FileList selected = {0};
+    if (!app || !payload || !payload[0]) return;
+    copy = strdup(payload);
+    if (!copy) return;
+    selected.paths = calloc(MAX_IMAGES, sizeof(*selected.paths));
+    if (!selected.paths) { free(copy); return; }
+
+    for (line = strtok_r(copy, "\n", &save);
+         line && selected.count < MAX_IMAGES;
+         line = strtok_r(NULL, "\n", &save)) {
+        size_t length = strlen(line);
+        while (length > 0 && (line[length - 1] == '\r' || line[length - 1] == ' '))
+            line[--length] = '\0';
+        if (length == 0 || validate_filepath(line) != SECURITY_OK || !is_image_file(line))
+            continue;
+        selected.paths[selected.count] = strdup(line);
+        if (selected.paths[selected.count]) selected.count++;
+    }
+    free(copy);
+    if (selected.count == 0) {
+        free(selected.paths);
+        feedback(app, "No readable images were found in that selection.");
+        android_ui_set_error(app->android_ui, 1,
+                             "Android could not read any supported images here.");
+        return;
+    }
+    qsort(selected.paths, selected.count, sizeof(*selected.paths), path_cmp);
+    selected.current = 0;
+    free_file_list(&app->file_list);
+    app->file_list = selected;
+    free_thumb_cache(app);
+    if (!load_image(app, app->file_list.paths[0])) {
+        app->current_path[0] = '\0';
+        android_ui_set_error(app->android_ui, 1,
+                             "The selected file is damaged or unsupported.");
+        return;
+    }
+    secure_strncpy(app->current_path, app->file_list.paths[0], sizeof(app->current_path));
+    app->rotation = 0;
+    app->info_scroll = 0;
+    app->feedback[0] = '\0';
+    android_ui_set_image(app->android_ui);
+    android_ui_show_viewer(app->android_ui);
+}
+
+static void android_delete_current(App *app) {
+    int current;
+    if (!app || app->file_list.count <= 0) return;
+    current = app->file_list.current;
+    if (remove(app->file_list.paths[current]) != 0) {
+        feedback(app, "This Android document could not be removed.");
+        return;
+    }
+    free(app->file_list.paths[current]);
+    for (int i = current; i + 1 < app->file_list.count; i++)
+        app->file_list.paths[i] = app->file_list.paths[i + 1];
+    app->file_list.count--;
+    if (app->file_list.count == 0) {
+        if (app->image_texture) {
+            SDL_DestroyTexture(app->image_texture);
+            app->image_texture = NULL;
+        }
+        app->current_path[0] = '\0';
+        android_ui_show_home(app->android_ui);
+        return;
+    }
+    if (current >= app->file_list.count) current = app->file_list.count - 1;
+    navigate_to(app, current);
+}
+
+static void handle_android_action(App *app, AndroidAction action) {
+    if (!app || !app->android_ui) return;
+    switch (action.type) {
+        case ANDROID_ACTION_OPEN_IMAGE:
+            android_ui_set_loading(app->android_ui, 1, "Opening Android picker…");
+            android_open_picker(0);
+            break;
+        case ANDROID_ACTION_OPEN_FOLDER:
+            android_ui_set_loading(app->android_ui, 1, "Opening Android folder picker…");
+            android_open_picker(1);
+            break;
+        case ANDROID_ACTION_PREVIOUS:
+            navigate_image(app, -1);
+            break;
+        case ANDROID_ACTION_NEXT:
+            navigate_image(app, 1);
+            break;
+        case ANDROID_ACTION_NAVIGATE_INDEX:
+            if (app->file_list.count > 0)
+                navigate_to(app, clamp_int(action.index, 0, app->file_list.count - 1));
+            break;
+        case ANDROID_ACTION_ROTATE:
+            app->rotation = ((action.index % 360) + 360) % 360;
+            break;
+        case ANDROID_ACTION_COPY:
+            android_copy_image(app->current_path);
+            feedback(app, "Image copied to the clipboard.");
+            break;
+        case ANDROID_ACTION_SHARE:
+            android_share_image(app->current_path);
+            break;
+        case ANDROID_ACTION_DELETE_CONFIRM:
+            android_delete_current(app);
+            break;
+        default:
+            break;
+    }
+}
+
+static void handle_android_user_event(App *app, SDL_Event *event) {
+    if (!app || !event) return;
+    if (event->user.code == PHOTON_ANDROID_EVENT_DOCUMENT) {
+        open_android_paths(app, (const char *)event->user.data1);
+        free(event->user.data1);
+    } else if (event->user.code == PHOTON_ANDROID_EVENT_BACK) {
+        if (!android_ui_action_back(app->android_ui)) app->running = 0;
+        free(event->user.data1);
+    } else if (event->user.code == PHOTON_ANDROID_EVENT_MESSAGE) {
+        feedback(app, (const char *)event->user.data1);
+        android_ui_set_loading(app->android_ui, 0, NULL);
+        free(event->user.data1);
+    }
+}
+
+static void sync_android_system_ui(App *app) {
+    int immersive;
+    if (!app || !app->android_ui) return;
+    immersive = android_ui_is_immersive(app->android_ui);
+    if (immersive != app->android_immersive) {
+        app->android_immersive = immersive;
+        android_set_immersive(immersive);
+    }
+}
+
+static void process_android_actions(App *app) {
+    AndroidAction action;
+    if (!app || !app->android_ui) return;
+    while (android_ui_next_action(app->android_ui, &action))
+        handle_android_action(app, action);
+    sync_android_system_ui(app);
+}
+#endif
 
 // ── Clipboard ─────────────────────────────────────────────────────────────────
 void copy_to_clipboard(App *app) {
@@ -1550,6 +1733,34 @@ void render_hint_bar(App *app) {
 }
 
 void render(App *app) {
+#ifdef __ANDROID__
+    AndroidUIFrame frame;
+    char *android_name = NULL;
+    char *android_location = NULL;
+    memset(&frame, 0, sizeof(frame));
+    frame.image_texture = app->image_texture;
+    frame.image_width = app->image_width;
+    frame.image_height = app->image_height;
+    frame.image_name = app->current_path[0] ? filename_from_path(app->current_path) : NULL;
+    frame.image_format = app->current_path[0] ? get_format_name(app->current_path) : NULL;
+    frame.image_folder = app->current_path[0] ? "Selected images" : NULL;
+    if (app->current_path[0]) {
+        android_name = android_document_name(app->current_path);
+        android_location = android_document_location(app->current_path);
+        if (android_name && android_name[0]) frame.image_name = android_name;
+        if (android_location && android_location[0]) frame.image_folder = android_location;
+    }
+    frame.image_index = app->file_list.current;
+    frame.image_count = app->file_list.count;
+    frame.image_size = app->current_file_size;
+    frame.image_modified = app->current_mod_time;
+    frame.error_message = app->feedback[0] ? app->feedback : NULL;
+    android_ui_render(app->android_ui, &frame);
+    free(android_name);
+    free(android_location);
+    SDL_RenderPresent(app->renderer);
+    return;
+#else
     int width, height;
     if (SDL_GetRendererOutputSize(app->renderer, &width, &height) == 0 &&
         app->window_width > 0 && app->window_height > 0)
@@ -1562,6 +1773,7 @@ void render(App *app) {
     render_hint_bar(app);
     render_info_panel(app);
     SDL_RenderPresent(app->renderer);
+#endif
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -1705,6 +1917,37 @@ static void handle_event(App *app, SDL_Event ev) {
             app->running = 0;
             break;
 
+#ifdef __ANDROID__
+        case SDL_USEREVENT:
+            handle_android_user_event(app, &ev);
+            process_android_actions(app);
+            break;
+
+        case SDL_FINGERDOWN:
+            android_ui_touch_down(app->android_ui, (int)ev.tfinger.fingerId,
+                                  ev.tfinger.x * app->window_width,
+                                  ev.tfinger.y * app->window_height,
+                                  (double)ev.tfinger.timestamp / 1000.0);
+            process_android_actions(app);
+            break;
+
+        case SDL_FINGERMOTION:
+            android_ui_touch_move(app->android_ui, (int)ev.tfinger.fingerId,
+                                  ev.tfinger.x * app->window_width,
+                                  ev.tfinger.y * app->window_height,
+                                  (double)ev.tfinger.timestamp / 1000.0);
+            process_android_actions(app);
+            break;
+
+        case SDL_FINGERUP:
+            android_ui_touch_up(app->android_ui, (int)ev.tfinger.fingerId,
+                                ev.tfinger.x * app->window_width,
+                                ev.tfinger.y * app->window_height,
+                                (double)ev.tfinger.timestamp / 1000.0);
+            process_android_actions(app);
+            break;
+#endif
+
         case SDL_WINDOWEVENT:
             if (ev.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
                 cancel_pointer(app);
@@ -1716,6 +1959,9 @@ static void handle_event(App *app, SDL_Event ev) {
                 cancel_pointer(app);
                 app->window_width  = ev.window.data1;
                 app->window_height = ev.window.data2;
+#ifdef __ANDROID__
+                android_ui_resize(app->android_ui, app->window_width, app->window_height);
+#endif
                 if (!app->is_panning) {
                     SDL_Rect viewport = get_image_viewport(app);
                     float limit_x, limit_y;
@@ -1764,6 +2010,13 @@ static void handle_event(App *app, SDL_Event ev) {
                 apply_accessibility_preferences(app);
                 break;
             }
+#ifdef __ANDROID__
+            if (ev.key.keysym.sym == SDLK_AC_BACK) {
+                if (!android_ui_action_back(app->android_ui)) app->running = 0;
+                process_android_actions(app);
+                break;
+            }
+#endif
             switch (ev.key.keysym.sym) {
                 case SDLK_F1:
                     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Photon controls",
@@ -1989,6 +2242,10 @@ void handle_events(App *app) {
 
 // ── SDL init / cleanup ────────────────────────────────────────────────────────
 int initialize_sdl(App *app) {
+#ifdef __ANDROID__
+    SDL_SetHint(SDL_HINT_ORIENTATIONS,
+                "Portrait PortraitUpsideDown LandscapeLeft LandscapeRight");
+#endif
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         SDL_Log("SDL init: %s", SDL_GetError()); return 0;
     }
@@ -2027,8 +2284,13 @@ int initialize_sdl(App *app) {
 
     const char *font_path = find_font(app);
     const char *scale = getenv("PHOTON_TEXT_SCALE");
-    if (app->text_scale < 1.0f)
+    if (app->text_scale < 1.0f) {
+#ifdef __ANDROID__
+        app->text_scale = scale ? photon_clamp(strtof(scale, NULL), 1.0f, 2.0f) : 2.0f;
+#else
         app->text_scale = scale ? photon_clamp(strtof(scale, NULL), 1.0f, 2.0f) : 1.0f;
+#endif
+    }
     app->ui = photon_ui_create(app->renderer, font_path, app->text_scale);
     if (!app->ui) {
         SDL_DestroyRenderer(app->renderer);
@@ -2037,7 +2299,9 @@ int initialize_sdl(App *app) {
     }
     app->font_regular = photon_ui_font(app->ui, PHOTON_FONT_BODY);
     app->font_bold = photon_ui_font(app->ui, PHOTON_FONT_LABEL);
+#ifndef __ANDROID__
     SDL_SetWindowMinimumSize(app->window, 480, ui_px(app, 360));
+#endif
     SDL_GetWindowSize(app->window, &app->window_width, &app->window_height);
     if (!app->font_regular)
         SDL_Log("Warning: No font found. Text disabled. (%s)", TTF_GetError());
@@ -2058,6 +2322,20 @@ int initialize_sdl(App *app) {
     reset_pan_motion(app, 0, 0);
     photon_spring_reset(&app->info_spring, 0.0f);
     photon_spring_reset(&app->thumbs_spring, 1.0f);
+#ifdef __ANDROID__
+    app->android_ui = android_ui_create(app->renderer, app->ui,
+                                         app->window_width, app->window_height);
+    if (!app->android_ui) {
+        photon_ui_destroy(app->ui);
+        SDL_DestroyRenderer(app->renderer);
+        SDL_DestroyWindow(app->window);
+        TTF_Quit(); IMG_Quit(); SDL_Quit();
+        return 0;
+    }
+    android_ui_preferences(app->android_ui, app->reduced_motion,
+                           app->reduced_transparency, app->high_contrast);
+    android_set_immersive(0);
+#endif
     app->last_frame_ticks = SDL_GetTicks();
     return 1;
 }
@@ -2067,6 +2345,9 @@ void cleanup(App *app) {
     free_file_list(&app->file_list);
     free_thumb_cache(app);
     if (app->image_texture) SDL_DestroyTexture(app->image_texture);
+#ifdef __ANDROID__
+    android_ui_destroy(app->android_ui);
+#endif
     photon_ui_destroy(app->ui);
     if (app->renderer)      SDL_DestroyRenderer(app->renderer);
     if (app->window)        SDL_DestroyWindow(app->window);
@@ -2089,18 +2370,29 @@ int main(int argc, char *argv[]) {
 
     if (!initialize_sdl(&app)) return 1;
 
-#if !defined(_WIN32) && !defined(__APPLE__)
+#if !defined(_WIN32) && !defined(__APPLE__) && !defined(__ANDROID__)
     integrate_desktop();
 #endif
 
+#ifdef __ANDROID__
+    /* Android starts at the purpose-built home screen. The Java SAF bridge
+     * supplies a cache path only after the user makes a document selection. */
+    if (arg_idx < argc) open_image_path(&app, argv[arg_idx]);
+#else
     if (arg_idx < argc) open_image_path(&app, argv[arg_idx]);
     else                open_image(&app);
+#endif
 
     while (app.running) {
         Uint32 frame_start = SDL_GetTicks();
         float dt = (float)(frame_start - app.last_frame_ticks) / 1000.0f;
         app.last_frame_ticks = frame_start;
+#ifdef __ANDROID__
+        android_ui_update(app.android_ui, fminf(dt, 0.05f));
+        sync_android_system_ui(&app);
+#else
         update_pan_motion(&app, fminf(dt, 0.05f));
+#endif
         handle_events(&app);
         render(&app);
         if (!app.renderer_vsync) {
