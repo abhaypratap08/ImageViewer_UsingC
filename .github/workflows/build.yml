@@ -20,10 +20,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libsdl2-dev libsdl2-image-dev libsdl2-ttf-dev wget
+            libsdl2-dev libsdl2-image-dev libsdl2-ttf-dev fonts-dejavu-core wget
 
       - name: Build
         run: make
+
+      - name: Run motion, UI and interaction tests
+        run: make test
 
       - name: Create AppDir
         run: |
