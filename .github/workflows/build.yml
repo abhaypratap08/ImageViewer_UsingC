@@ -129,10 +129,72 @@ jobs:
             Photon-Windows.zip
             Photon-Setup.exe
 
+
+  # ── Android ──────────────────────────────────────────────────────────────────
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK components
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;27.0.12077973"
+
+      - name: Fetch SDL dependencies
+        working-directory: Android/app/jni
+        run: |
+          git clone --depth 1 --branch release-2.32.10 \
+            https://github.com/libsdl-org/SDL.git SDL
+
+          git clone --depth 1 --branch release-2.8.12 \
+            https://github.com/libsdl-org/SDL_image.git SDL_image
+
+          git clone --depth 1 --branch release-2.24.0 \
+            https://github.com/libsdl-org/SDL_ttf.git SDL_ttf
+
+          cd SDL_ttf
+          git submodule update --init --recursive
+
+      - name: Build Android APK
+        working-directory: Android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --no-daemon
+
+      - name: Prepare APK
+        working-directory: Android
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk \
+            ../Photon-Android.apk
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Photon-Android
+          path: Photon-Android.apk
+
   # ── GitHub Release ───────────────────────────────────────────────────────────
   release:
     name: Create GitHub Release
-    needs: [ build-linux, build-windows ]
+    needs:
+      - build-linux
+      - build-windows
+      - build-android
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
@@ -157,6 +219,7 @@ jobs:
 
             | Platform | File | Notes |
             |----------|------|-------|
+            | Android             | `Photon-Android.apk` | Install directly on Android |
             | Windows (Installer) | `Photon-Setup.exe` | Installs to Program Files, adds Photon to Open With |
             | Windows (Portable)  | `Photon-Windows.zip` | Extract and run `photon.exe` — no install needed |
             | Linux               | `Photon-x86_64.AppImage` | `chmod +x` then run |
@@ -178,6 +241,7 @@ jobs:
             | Drag & drop | Open dropped image file |
 
           files: |
+            Photon-Android/Photon-Android.apk
             Photon-Linux-AppImage/Photon-x86_64.AppImage
             Photon-Windows/Photon-Windows.zip
             Photon-Windows/Photon-Setup.exe

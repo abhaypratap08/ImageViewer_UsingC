@@ -1,8 +1,13 @@
 #ifndef PHOTON_UI_H
 #define PHOTON_UI_H
 
+#ifdef __ANDROID__
+#include <SDL.h>
+#include <SDL_ttf.h>
+#else
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
+#endif
 
 typedef struct PhotonUI PhotonUI;
 

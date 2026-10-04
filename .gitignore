@@ -1,5 +1,5 @@
 # Compiled binaries
-photon
+/photon
 photon.exe
 *.exe
 
@@ -50,3 +50,14 @@ test_images/
 # Backup files
 *.bak
 *.backup
+
+# Android build artifacts
+Android/.gradle/
+Android/build/
+Android/app/build/
+Android/local.properties
+
+# Android SDL dependencies - fetched by CI
+Android/app/jni/SDL/
+Android/app/jni/SDL_image/
+Android/app/jni/SDL_ttf/
